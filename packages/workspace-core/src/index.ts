@@ -9,6 +9,10 @@ import path from "node:path";
 export interface PrepareWorkspaceInput {
   sessionId: string;
   templatePath?: string | null;
+  existingWorkspacePath?: string | null;
+  preferredPort?: number | null;
+  username?: string | null;
+  password?: string | null;
 }
 
 export interface StartProcessInput {
@@ -81,21 +85,41 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
 
     await mkdir(this.options.rootDir, { recursive: true });
 
-    const workspaceRootPath = await mkdtemp(path.join(this.options.rootDir, `${input.sessionId}-`));
-    let workspacePath = workspaceRootPath;
+    let workspaceRootPath: string;
+    let workspacePath: string;
 
-    if (input.templatePath) {
-      await access(input.templatePath, constants.R_OK);
-      workspacePath = path.join(workspaceRootPath, path.basename(input.templatePath));
-      await cp(input.templatePath, workspacePath, { recursive: true });
+    if (input.existingWorkspacePath) {
+      try {
+        await access(input.existingWorkspacePath, constants.R_OK);
+        workspaceRootPath = input.existingWorkspacePath;
+        workspacePath = input.existingWorkspacePath;
+      } catch {
+        workspaceRootPath = await mkdtemp(path.join(this.options.rootDir, `${input.sessionId}-`));
+        workspacePath = workspaceRootPath;
+
+        if (input.templatePath) {
+          await access(input.templatePath, constants.R_OK);
+          workspacePath = path.join(workspaceRootPath, path.basename(input.templatePath));
+          await cp(input.templatePath, workspacePath, { recursive: true });
+        }
+      }
+    } else {
+      workspaceRootPath = await mkdtemp(path.join(this.options.rootDir, `${input.sessionId}-`));
+      workspacePath = workspaceRootPath;
+
+      if (input.templatePath) {
+        await access(input.templatePath, constants.R_OK);
+        workspacePath = path.join(workspaceRootPath, path.basename(input.templatePath));
+        await cp(input.templatePath, workspacePath, { recursive: true });
+      }
     }
 
     this.sessions.set(input.sessionId, {
       workspaceRootPath,
       workspacePath,
-      port: this.allocatePort(),
-      username: this.opencodeUsername,
-      password: randomBytes(18).toString("base64url"),
+      port: this.allocatePort(input.preferredPort ?? undefined),
+      username: input.username?.trim() || this.opencodeUsername,
+      password: input.password?.trim() || randomBytes(18).toString("base64url"),
       mode: null,
       process: null,
       mockServer: null,
@@ -149,7 +173,20 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
 
   public getSessionEndpoint(sessionId: string): string | null {
     const record = this.sessions.get(sessionId);
-    return record ? this.buildEndpoint(record.port) : null;
+
+    if (!record) {
+      return null;
+    }
+
+    if (record.mockServer) {
+      return this.buildEndpoint(record.port);
+    }
+
+    if (record.process && !record.process.killed && record.mode === "opencode") {
+      return this.buildEndpoint(record.port);
+    }
+
+    return null;
   }
 
   public async cleanupSessionWorkspace(sessionId: string): Promise<void> {
@@ -299,8 +336,18 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
     });
   }
 
-  private allocatePort(): number {
+  private allocatePort(preferredPort?: number): number {
     const usedPorts = new Set(Array.from(this.sessions.values(), (record) => record.port));
+
+    if (
+      typeof preferredPort === "number" &&
+      Number.isInteger(preferredPort) &&
+      preferredPort > 0 &&
+      !usedPorts.has(preferredPort)
+    ) {
+      return preferredPort;
+    }
+
     let candidate = this.basePort;
 
     while (usedPorts.has(candidate)) {

@@ -99,6 +99,65 @@ function buildUpstreamUrl(target: string, wildcardPath: string, rawRequestUrl: s
   return upstream.toString();
 }
 
+function buildUpstreamRequestBody(request: FastifyRequest): RequestInit["body"] | undefined {
+  if (request.body === undefined || request.body === null) {
+    if (request.raw.readableEnded) {
+      return undefined;
+    }
+
+    return Readable.toWeb(request.raw) as RequestInit["body"];
+  }
+
+  const body = request.body as unknown;
+
+  if (
+    typeof body === "string" ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body) ||
+    (typeof Blob === "function" && body instanceof Blob) ||
+    (typeof FormData === "function" && body instanceof FormData) ||
+    body instanceof URLSearchParams
+  ) {
+    return body as RequestInit["body"];
+  }
+
+  const contentTypeHeader = request.headers["content-type"];
+  const contentType = Array.isArray(contentTypeHeader)
+    ? (contentTypeHeader[0] ?? "")
+    : (contentTypeHeader ?? "");
+
+  if (
+    contentType.includes("application/x-www-form-urlencoded") &&
+    typeof body === "object" &&
+    body !== null &&
+    !Array.isArray(body)
+  ) {
+    const params = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(body)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          params.append(key, String(item));
+        }
+      } else {
+        params.append(key, String(value));
+      }
+    }
+
+    return params;
+  }
+
+  if (typeof body === "object") {
+    return JSON.stringify(body);
+  }
+
+  return String(body);
+}
+
 function rewriteHtmlForSessionPath(html: string, sessionId: string): string {
   const prefix = `/s/${sessionId}`;
 
@@ -262,8 +321,15 @@ async function proxySessionRequest({
     };
 
     if (request.method !== "GET" && request.method !== "HEAD") {
-      upstreamRequest.body = Readable.toWeb(request.raw) as RequestInit["body"];
-      upstreamRequest.duplex = "half";
+      const upstreamBody = buildUpstreamRequestBody(request);
+
+      if (upstreamBody !== undefined) {
+        upstreamRequest.body = upstreamBody;
+
+        if (upstreamBody instanceof ReadableStream) {
+          upstreamRequest.duplex = "half";
+        }
+      }
     }
 
     const upstreamResponse = await fetch(upstreamUrl, upstreamRequest);

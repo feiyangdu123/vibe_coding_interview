@@ -320,13 +320,10 @@ export class SessionService {
     payload: StartSessionRequest = {},
   ): Promise<SessionDetailView> {
     const initialSession = await this.refreshExpiredSession(await this.loadSessionOrThrow(sessionId));
+    const shouldRecoverRuntime =
+      this.hasRuntimeConfig(initialSession) && !this.isRuntimeActive(initialSession);
 
-    if (
-      initialSession.status === "RUNNING" &&
-      initialSession.opencodeUrl &&
-      initialSession.opencodeUsername &&
-      initialSession.opencodePassword
-    ) {
+    if (this.hasRuntimeConfig(initialSession) && !shouldRecoverRuntime) {
       return this.toSessionDetailView(initialSession);
     }
 
@@ -341,12 +338,16 @@ export class SessionService {
     const workspacePath = await this.workspaceProvider.prepareSessionWorkspace({
       sessionId,
       templatePath,
+      existingWorkspacePath: shouldRecoverRuntime ? initialSession.workspacePath : null,
+      preferredPort: shouldRecoverRuntime ? this.parseRuntimePort(initialSession.opencodeUrl) : null,
+      username: shouldRecoverRuntime ? initialSession.opencodeUsername : null,
+      password: shouldRecoverRuntime ? initialSession.opencodePassword : null,
     });
     const handle = await this.workspaceProvider.startOpenCodeWebProcess({ sessionId });
     const now = new Date();
-    const expiresAt = new Date(
-      now.getTime() + initialSession.interview.problem.durationMin * 60_000,
-    );
+    const expiresAt = shouldRecoverRuntime && initialSession.expiresAt
+      ? initialSession.expiresAt
+      : new Date(now.getTime() + initialSession.interview.problem.durationMin * 60_000);
 
     await prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -379,11 +380,12 @@ export class SessionService {
       await tx.sessionAuditLog.create({
         data: {
           sessionId,
-          action: "session_started",
+          action: shouldRecoverRuntime ? "session_runtime_recovered" : "session_started",
           detail: {
             runtimeMode: handle.mode,
             workspacePath,
             expiresAt: expiresAt.toISOString(),
+            recovered: shouldRecoverRuntime,
           },
         },
       });
@@ -432,7 +434,15 @@ export class SessionService {
   }
 
   public async getProxyConfig(sessionId: string): Promise<SessionProxyResult> {
-    const session = await this.refreshExpiredSession(await this.loadSessionOrThrow(sessionId));
+    let session = await this.refreshExpiredSession(await this.loadSessionOrThrow(sessionId));
+
+    if (this.hasRuntimeConfig(session) && !this.isRuntimeActive(session)) {
+      const recoveredSession = await this.tryRecoverRuntime(sessionId);
+
+      if (recoveredSession) {
+        session = recoveredSession;
+      }
+    }
 
     if (session.status !== "RUNNING") {
       return {
@@ -442,7 +452,7 @@ export class SessionService {
       };
     }
 
-    if (!session.opencodeUrl || !session.opencodeUsername || !session.opencodePassword) {
+    if (!this.hasRuntimeConfig(session)) {
       return {
         kind: "blocked",
         status: session.status,
@@ -450,13 +460,30 @@ export class SessionService {
       };
     }
 
+    if (!this.isRuntimeActive(session)) {
+      return {
+        kind: "blocked",
+        status: session.status,
+        reason: "编程环境未连接。请返回面试状态页后重新点击“打开编程环境”。",
+      };
+    }
+
     return {
       kind: "ready",
-      target: session.opencodeUrl,
-      username: session.opencodeUsername,
-      password: session.opencodePassword,
+      target: session.opencodeUrl!,
+      username: session.opencodeUsername!,
+      password: session.opencodePassword!,
       status: session.status,
     };
+  }
+
+  private async tryRecoverRuntime(sessionId: string): Promise<SessionWithRelations | null> {
+    try {
+      await this.startSession(sessionId);
+      return this.refreshExpiredSession(await this.loadSessionOrThrow(sessionId));
+    } catch {
+      return null;
+    }
   }
 
   private async loadSessionOrThrow(sessionId: string): Promise<SessionWithRelations> {
@@ -493,6 +520,36 @@ export class SessionService {
     }
 
     return session;
+  }
+
+  private hasRuntimeConfig(session: SessionWithRelations): boolean {
+    return (
+      session.status === "RUNNING" &&
+      Boolean(session.opencodeUrl) &&
+      Boolean(session.opencodeUsername) &&
+      Boolean(session.opencodePassword)
+    );
+  }
+
+  private isRuntimeActive(session: SessionWithRelations): boolean {
+    if (!this.hasRuntimeConfig(session)) {
+      return false;
+    }
+
+    return this.workspaceProvider.getSessionEndpoint(session.id) === session.opencodeUrl;
+  }
+
+  private parseRuntimePort(runtimeUrl: string | null): number | null {
+    if (!runtimeUrl) {
+      return null;
+    }
+
+    try {
+      const parsed = Number.parseInt(new URL(runtimeUrl).port, 10);
+      return Number.isNaN(parsed) ? null : parsed;
+    } catch {
+      return null;
+    }
   }
 
   private async ensureCandidateExists(candidateId: string): Promise<CandidateRecord> {

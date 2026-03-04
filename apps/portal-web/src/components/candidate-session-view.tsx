@@ -15,6 +15,7 @@ export function CandidateSessionView({
   const [session, setSession] = useState(initialSession);
   const [remainingMs, setRemainingMs] = useState(initialSession.remainingMs);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const expiringRef = useRef(false);
 
@@ -129,12 +130,42 @@ export function CandidateSessionView({
     }
   }
 
-  function handleLaunch(): void {
+  async function handleLaunch(): Promise<void> {
     if (session.status !== "RUNNING" || remainingMs <= 0) {
       return;
     }
 
-    window.open(`${controlPlaneOrigin}/s/${session.sessionId}/`, "_blank", "noopener,noreferrer");
+    setErrorMessage(null);
+    setIsLaunching(true);
+
+    try {
+      const response = await fetch(
+        `${controlPlaneOrigin}/api/sessions/${encodeURIComponent(session.sessionId)}/start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          (payload as { message?: string } | null)?.message ?? "编程环境启动失败，请稍后重试。",
+        );
+      }
+
+      const nextSession = payload as SessionDetailView;
+      setSession(nextSession);
+      setRemainingMs(nextSession.remainingMs);
+      window.open(`${controlPlaneOrigin}/s/${session.sessionId}/`, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "编程环境启动失败，请稍后重试。");
+    } finally {
+      setIsLaunching(false);
+    }
   }
 
   if (session.status === "EXPIRED") {
@@ -221,11 +252,13 @@ export function CandidateSessionView({
         <div className="button-row">
           <button
             type="button"
-            onClick={handleLaunch}
-            disabled={!canLaunch}
+            onClick={() => {
+              void handleLaunch();
+            }}
+            disabled={!canLaunch || isLaunching}
             className="button-primary"
           >
-            打开编程环境
+            {isLaunching ? "正在打开..." : "打开编程环境"}
           </button>
           <button
             type="button"
