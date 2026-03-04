@@ -6,6 +6,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import("next").NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  devIndicators: false,
   turbopack: {
     root: path.join(currentDir, "../.."),
   },

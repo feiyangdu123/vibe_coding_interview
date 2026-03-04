@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { CandidateListItem } from "@vibe-interview/shared-types";
+import { formatAdminDateTime } from "../lib/admin-format";
 
-interface CandidateDraft {
+type CandidateDrawerMode = "create" | "view" | "edit" | null;
+
+interface CandidateFormState {
   name: string;
   email: string;
   phone: string;
@@ -16,7 +19,7 @@ interface AdminCandidatesPanelProps {
   controlPlaneOrigin: string;
 }
 
-const emptyDraft: CandidateDraft = {
+const emptyFormState: CandidateFormState = {
   name: "",
   email: "",
   phone: "",
@@ -28,311 +31,404 @@ export function AdminCandidatesPanel({
   controlPlaneOrigin,
 }: AdminCandidatesPanelProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
-  const [draft, setDraft] = useState<CandidateDraft>(emptyDraft);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState<CandidateDraft>(emptyDraft);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [drawerMode, setDrawerMode] = useState<CandidateDrawerMode>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const [formState, setFormState] = useState<CandidateFormState>(emptyFormState);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  async function createCandidate(): Promise<void> {
-    setErrorMessage(null);
-    setIsSubmitting(true);
+  const selectedCandidate = selectedCandidateId
+    ? candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null
+    : null;
+  const filteredCandidates = useMemo(() => {
+    const normalized = searchQuery.trim().toLowerCase();
 
-    try {
-      const response = await fetch(`${controlPlaneOrigin}/api/admin/candidates`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          name: draft.name,
-          email: draft.email,
-          phone: draft.phone || null,
-          targetRole: draft.targetRole || null,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error((payload as { message?: string } | null)?.message ?? "新增候选人失败。");
-      }
-
-      setCandidates((current) => [payload as CandidateListItem, ...current]);
-      setDraft(emptyDraft);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "新增候选人失败。");
-    } finally {
-      setIsSubmitting(false);
+    if (!normalized) {
+      return candidates;
     }
+
+    return candidates.filter((candidate) => {
+      const haystack = [
+        candidate.name,
+        candidate.email,
+        candidate.phone ?? "",
+        candidate.targetRole ?? "",
+      ]
+        .join("\n")
+        .toLowerCase();
+
+      return haystack.includes(normalized);
+    });
+  }, [candidates, searchQuery]);
+
+  function openCreateDrawer(): void {
+    setErrorMessage(null);
+    setSelectedCandidateId(null);
+    setFormState(emptyFormState);
+    setDrawerMode("create");
   }
 
-  async function updateCandidate(candidateId: string): Promise<void> {
+  function openViewDrawer(candidate: CandidateListItem): void {
     setErrorMessage(null);
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch(
-        `${controlPlaneOrigin}/api/admin/candidates/${encodeURIComponent(candidateId)}`,
-        {
-          method: "PATCH",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            name: editingDraft.name,
-            email: editingDraft.email,
-            phone: editingDraft.phone || null,
-            targetRole: editingDraft.targetRole || null,
-          }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error((payload as { message?: string } | null)?.message ?? "更新候选人失败。");
-      }
-
-      const nextCandidate = payload as CandidateListItem;
-      setCandidates((current) =>
-        current.map((candidate) => (candidate.id === candidateId ? nextCandidate : candidate)),
-      );
-      setEditingId(null);
-      setEditingDraft(emptyDraft);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "更新候选人失败。");
-    } finally {
-      setIsSubmitting(false);
-    }
+    setSelectedCandidateId(candidate.id);
+    setDrawerMode("view");
   }
 
-  async function deleteCandidate(candidateId: string): Promise<void> {
+  function openEditDrawer(candidate: CandidateListItem): void {
     setErrorMessage(null);
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch(
-        `${controlPlaneOrigin}/api/admin/candidates/${encodeURIComponent(candidateId)}`,
-        {
-          method: "DELETE",
-        },
-      );
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error((payload as { message?: string } | null)?.message ?? "删除候选人失败。");
-      }
-
-      setCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
-      if (editingId === candidateId) {
-        setEditingId(null);
-        setEditingDraft(emptyDraft);
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "删除候选人失败。");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  function startEditing(candidate: CandidateListItem): void {
-    setEditingId(candidate.id);
-    setEditingDraft({
+    setSelectedCandidateId(candidate.id);
+    setFormState({
       name: candidate.name,
       email: candidate.email,
       phone: candidate.phone ?? "",
       targetRole: candidate.targetRole ?? "",
     });
+    setDrawerMode("edit");
+  }
+
+  function closeDrawer(): void {
+    setDrawerMode(null);
+    setSelectedCandidateId(null);
+    setFormState(emptyFormState);
+    setErrorMessage(null);
+  }
+
+  async function submitCandidate(): Promise<void> {
+    if (drawerMode !== "create" && drawerMode !== "edit") {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    const candidateId = drawerMode === "edit" ? selectedCandidateId : null;
+    const requestUrl =
+      drawerMode === "edit" && candidateId
+        ? `${controlPlaneOrigin}/api/admin/candidates/${encodeURIComponent(candidateId)}`
+        : `${controlPlaneOrigin}/api/admin/candidates`;
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: drawerMode === "edit" ? "PATCH" : "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: formState.name,
+          email: formState.email,
+          phone: formState.phone || null,
+          targetRole: formState.targetRole || null,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error((payload as { message?: string } | null)?.message ?? "保存候选人失败。");
+      }
+
+      const nextCandidate = payload as CandidateListItem;
+
+      if (drawerMode === "create") {
+        setCandidates((current) => [nextCandidate, ...current]);
+      } else if (candidateId) {
+        setCandidates((current) =>
+          current.map((candidate) => (candidate.id === candidateId ? nextCandidate : candidate)),
+        );
+      }
+
+      closeDrawer();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "保存候选人失败。");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
-    <div className="grid">
-      <section className="card">
-        <h2 className="section-title">新增候选人</h2>
-        <div className="form-grid">
-          <label className="form-field">
-            <span>姓名</span>
+    <>
+      <section className="card admin-card">
+        <div className="admin-toolbar">
+          <label className="admin-search">
+            <span>搜索候选人</span>
             <input
-              value={draft.name}
+              value={searchQuery}
               onChange={(event) => {
-                setDraft((current) => ({ ...current, name: event.target.value }));
+                setSearchQuery(event.target.value);
               }}
-              placeholder="例如：张三"
+              placeholder="按姓名、邮箱、电话或岗位搜索"
             />
           </label>
-          <label className="form-field">
-            <span>邮箱</span>
-            <input
-              value={draft.email}
-              onChange={(event) => {
-                setDraft((current) => ({ ...current, email: event.target.value }));
-              }}
-              placeholder="zhangsan@example.com"
-            />
-          </label>
-          <label className="form-field">
-            <span>电话</span>
-            <input
-              value={draft.phone}
-              onChange={(event) => {
-                setDraft((current) => ({ ...current, phone: event.target.value }));
-              }}
-              placeholder="可选"
-            />
-          </label>
-          <label className="form-field">
-            <span>应聘岗位</span>
-            <input
-              value={draft.targetRole}
-              onChange={(event) => {
-                setDraft((current) => ({ ...current, targetRole: event.target.value }));
-              }}
-              placeholder="可选"
-            />
-          </label>
-        </div>
-        <div className="button-row">
+
           <button
             type="button"
-            onClick={() => {
-              void createCandidate();
-            }}
-            disabled={isSubmitting}
             className="button-primary"
+            onClick={() => {
+              openCreateDrawer();
+            }}
           >
-            {isSubmitting ? "提交中..." : "新增候选人"}
+            新建候选人
           </button>
         </div>
-        {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
-      </section>
 
-      <section className="card">
-        <h2 className="section-title">候选人列表</h2>
+        {errorMessage && drawerMode === null ? <p className="error-text">{errorMessage}</p> : null}
+
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table admin-data-table">
             <thead>
               <tr>
-                <th>候选人</th>
-                <th>联系方式</th>
-                <th>岗位</th>
+                <th>姓名</th>
+                <th>邮箱</th>
+                <th>电话</th>
+                <th>应聘岗位</th>
+                <th>创建时间</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              {candidates.map((candidate) => (
-                <tr key={candidate.id}>
-                  <td>
-                    <strong>{candidate.name}</strong>
-                    <p className="table-subtext">{candidate.email}</p>
-                  </td>
-                  <td>{candidate.phone ?? "未填写"}</td>
-                  <td>{candidate.targetRole ?? "未填写"}</td>
-                  <td>
-                    <div className="button-row compact-row">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          startEditing(candidate);
-                        }}
-                        className="button-secondary"
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void deleteCandidate(candidate.id);
-                        }}
-                        className="button-danger"
-                      >
-                        删除
-                      </button>
-                      <Link
-                        href={`/admin/interviews/new?candidateId=${encodeURIComponent(candidate.id)}`}
-                        className="link-button"
-                      >
-                        安排面试
-                      </Link>
-                    </div>
-                    {editingId === candidate.id ? (
-                      <div className="edit-panel">
-                        <label className="form-field">
-                          <span>姓名</span>
-                          <input
-                            value={editingDraft.name}
-                            onChange={(event) => {
-                              setEditingDraft((current) => ({
-                                ...current,
-                                name: event.target.value,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <label className="form-field">
-                          <span>邮箱</span>
-                          <input
-                            value={editingDraft.email}
-                            onChange={(event) => {
-                              setEditingDraft((current) => ({
-                                ...current,
-                                email: event.target.value,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <label className="form-field">
-                          <span>电话</span>
-                          <input
-                            value={editingDraft.phone}
-                            onChange={(event) => {
-                              setEditingDraft((current) => ({
-                                ...current,
-                                phone: event.target.value,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <label className="form-field">
-                          <span>应聘岗位</span>
-                          <input
-                            value={editingDraft.targetRole}
-                            onChange={(event) => {
-                              setEditingDraft((current) => ({
-                                ...current,
-                                targetRole: event.target.value,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <div className="button-row compact-row">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void updateCandidate(candidate.id);
-                            }}
-                            className="button-primary"
-                          >
-                            保存
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditingDraft(emptyDraft);
-                            }}
-                            className="button-secondary"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+              {filteredCandidates.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <p className="admin-empty">没有匹配的候选人记录。</p>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredCandidates.map((candidate) => (
+                  <tr key={candidate.id}>
+                    <td>
+                      <div className="cell-title">{candidate.name}</div>
+                    </td>
+                    <td>{candidate.email}</td>
+                    <td>{candidate.phone ?? "未填写"}</td>
+                    <td>{candidate.targetRole ?? "未填写"}</td>
+                    <td>{formatAdminDateTime(candidate.createdAt)}</td>
+                    <td>
+                      <div className="button-row compact-row">
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => {
+                            openViewDrawer(candidate);
+                          }}
+                        >
+                          查看
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => {
+                            openEditDrawer(candidate);
+                          }}
+                        >
+                          编辑
+                        </button>
+                        <Link
+                          href={`/admin/interviews/new?candidateId=${encodeURIComponent(candidate.id)}`}
+                          className="link-button"
+                        >
+                          发面试链接
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </section>
-    </div>
+
+      {drawerMode ? (
+        <>
+          <button
+            type="button"
+            className="admin-side-sheet-backdrop"
+            onClick={() => {
+              closeDrawer();
+            }}
+            aria-label="关闭候选人抽屉"
+          />
+
+          <aside className="admin-side-sheet" role="dialog" aria-modal="true">
+            <div className="admin-side-sheet__header">
+              <div>
+                <p className="eyebrow">
+                  {drawerMode === "create"
+                    ? "新建候选人"
+                    : drawerMode === "edit"
+                      ? "编辑候选人"
+                      : "候选人详情"}
+                </p>
+                <h2 className="section-title">
+                  {drawerMode === "create"
+                    ? "新增候选人"
+                    : selectedCandidate?.name ?? "候选人详情"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  closeDrawer();
+                }}
+              >
+                关闭
+              </button>
+            </div>
+
+            {drawerMode === "view" && selectedCandidate ? (
+              <>
+                <div className="admin-side-sheet__body">
+                  <div className="admin-kv-grid">
+                    <div>
+                      <span className="admin-kv-grid__label">姓名</span>
+                      <strong>{selectedCandidate.name}</strong>
+                    </div>
+                    <div>
+                      <span className="admin-kv-grid__label">邮箱</span>
+                      <strong>{selectedCandidate.email}</strong>
+                    </div>
+                    <div>
+                      <span className="admin-kv-grid__label">电话</span>
+                      <strong>{selectedCandidate.phone ?? "未填写"}</strong>
+                    </div>
+                    <div>
+                      <span className="admin-kv-grid__label">应聘岗位</span>
+                      <strong>{selectedCandidate.targetRole ?? "未填写"}</strong>
+                    </div>
+                    <div>
+                      <span className="admin-kv-grid__label">创建时间</span>
+                      <strong>{formatAdminDateTime(selectedCandidate.createdAt)}</strong>
+                    </div>
+                    <div>
+                      <span className="admin-kv-grid__label">更新时间</span>
+                      <strong>{formatAdminDateTime(selectedCandidate.updatedAt)}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="admin-side-sheet__footer">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => {
+                      openEditDrawer(selectedCandidate);
+                    }}
+                  >
+                    编辑候选人
+                  </button>
+                  <Link
+                    href={`/admin/interviews/new?candidateId=${encodeURIComponent(selectedCandidate.id)}`}
+                    className="nav-pill"
+                  >
+                    发面试链接
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="admin-side-sheet__body">
+                  <div className="form-grid">
+                    <label className="form-field">
+                      <span>姓名</span>
+                      <input
+                        value={formState.name}
+                        onChange={(event) => {
+                          setFormState((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }));
+                        }}
+                        placeholder="例如：张三"
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>邮箱</span>
+                      <input
+                        value={formState.email}
+                        onChange={(event) => {
+                          setFormState((current) => ({
+                            ...current,
+                            email: event.target.value,
+                          }));
+                        }}
+                        placeholder="zhangsan@example.com"
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>电话</span>
+                      <input
+                        value={formState.phone}
+                        onChange={(event) => {
+                          setFormState((current) => ({
+                            ...current,
+                            phone: event.target.value,
+                          }));
+                        }}
+                        placeholder="可选"
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>应聘岗位</span>
+                      <input
+                        value={formState.targetRole}
+                        onChange={(event) => {
+                          setFormState((current) => ({
+                            ...current,
+                            targetRole: event.target.value,
+                          }));
+                        }}
+                        placeholder="可选"
+                      />
+                    </label>
+
+                    {drawerMode === "edit" && selectedCandidate ? (
+                      <>
+                        <div className="form-field">
+                          <span>创建时间</span>
+                          <input value={formatAdminDateTime(selectedCandidate.createdAt)} readOnly />
+                        </div>
+                        <div className="form-field">
+                          <span>更新时间</span>
+                          <input value={formatAdminDateTime(selectedCandidate.updatedAt)} readOnly />
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+                </div>
+
+                <div className="admin-side-sheet__footer">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => {
+                      closeDrawer();
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    onClick={() => {
+                      void submitCandidate();
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "保存中..." : drawerMode === "create" ? "创建候选人" : "保存修改"}
+                  </button>
+                </div>
+              </>
+            )}
+          </aside>
+        </>
+      ) : null}
+    </>
   );
 }

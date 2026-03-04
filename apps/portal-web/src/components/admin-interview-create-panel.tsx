@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   CandidateListItem,
   CreateInterviewResponse,
   ProblemListItem,
 } from "@vibe-interview/shared-types";
+import {
+  toProblemDifficultyLabel,
+  toProblemTypeLabel,
+} from "../lib/admin-format";
 
 interface AdminInterviewCreatePanelProps {
   candidates: CandidateListItem[];
@@ -26,6 +30,15 @@ export function AdminInterviewCreatePanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdInterview, setCreatedInterview] = useState<CreateInterviewResponse | null>(null);
+
+  const selectedCandidate = useMemo(
+    () => candidates.find((candidate) => candidate.id === candidateId) ?? null,
+    [candidateId, candidates],
+  );
+  const selectedProblem = useMemo(
+    () => problems.find((problem) => problem.id === problemId) ?? null,
+    [problemId, problems],
+  );
 
   async function createInterview(): Promise<void> {
     setErrorMessage(null);
@@ -56,10 +69,44 @@ export function AdminInterviewCreatePanel({
     }
   }
 
+  async function copyInterviewUrl(): Promise<void> {
+    if (!createdInterview) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createdInterview.interviewUrl);
+    } catch {
+      // Ignore clipboard failures so the page remains usable.
+    }
+  }
+
   return (
     <div className="grid">
-      <section className="card">
-        <h2 className="section-title">安排面试</h2>
+      {selectedCandidate ? (
+        <section className="card admin-card">
+          <div className="admin-inline-summary">
+            <div>
+              <p className="eyebrow">已选候选人</p>
+              <h2 className="section-title">{selectedCandidate.name}</h2>
+              <p className="muted-text">{selectedCandidate.email}</p>
+            </div>
+            <div className="admin-summary-tags">
+              <span className="tag">{selectedCandidate.phone ?? "未填写电话"}</span>
+              <span className="tag">{selectedCandidate.targetRole ?? "未填写岗位"}</span>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="card admin-card">
+        <div className="admin-toolbar">
+          <div className="admin-toolbar__meta">
+            <h2 className="section-title">生成面试链接</h2>
+            <p className="muted-text">先选择候选人与题目，再生成候选人专属链接。</p>
+          </div>
+        </div>
+
         <div className="form-grid">
           <label className="form-field">
             <span>选择候选人</span>
@@ -76,6 +123,7 @@ export function AdminInterviewCreatePanel({
               ))}
             </select>
           </label>
+
           <label className="form-field">
             <span>选择题目</span>
             <select
@@ -92,6 +140,28 @@ export function AdminInterviewCreatePanel({
             </select>
           </label>
         </div>
+
+        {selectedProblem ? (
+          <div className="admin-kv-grid">
+            <div>
+              <span className="admin-kv-grid__label">题目类型</span>
+              <strong>{toProblemTypeLabel(selectedProblem.type)}</strong>
+            </div>
+            <div>
+              <span className="admin-kv-grid__label">难度</span>
+              <strong>{toProblemDifficultyLabel(selectedProblem.difficulty)}</strong>
+            </div>
+            <div>
+              <span className="admin-kv-grid__label">面试时长</span>
+              <strong>{selectedProblem.durationMinutes} 分钟</strong>
+            </div>
+            <div>
+              <span className="admin-kv-grid__label">模板目录</span>
+              <strong>{selectedProblem.templatePath ?? "未设置"}</strong>
+            </div>
+          </div>
+        ) : null}
+
         <div className="button-row">
           <button
             type="button"
@@ -104,16 +174,24 @@ export function AdminInterviewCreatePanel({
             {isSubmitting ? "创建中..." : "生成候选人链接"}
           </button>
         </div>
+
         {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
       </section>
 
       {createdInterview ? (
-        <section className="card">
-          <h2 className="section-title">已生成面试链接</h2>
+        <section className="card admin-card">
+          <div className="admin-toolbar">
+            <div className="admin-toolbar__meta">
+              <h2 className="section-title">已生成面试链接</h2>
+              <p className="muted-text">可以直接复制链接发给候选人，或先打开页面检查内容。</p>
+            </div>
+          </div>
+
           <label className="form-field">
             <span>候选人链接</span>
             <input readOnly value={createdInterview.interviewUrl} />
           </label>
+
           <div className="button-row">
             <a href={createdInterview.interviewUrl} target="_blank" rel="noreferrer" className="link-button">
               打开候选人题目页
@@ -125,7 +203,7 @@ export function AdminInterviewCreatePanel({
               type="button"
               className="button-secondary"
               onClick={() => {
-                void navigator.clipboard.writeText(createdInterview.interviewUrl);
+                void copyInterviewUrl();
               }}
             >
               复制链接

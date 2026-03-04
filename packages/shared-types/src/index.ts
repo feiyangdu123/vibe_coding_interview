@@ -9,6 +9,20 @@ export const sessionStatuses = [
 
 export type SessionStatus = (typeof sessionStatuses)[number];
 
+export const problemTypes = [
+  "PRACTICAL",
+] as const;
+
+export type ProblemType = (typeof problemTypes)[number];
+
+export const problemDifficulties = [
+  "EASY",
+  "MEDIUM",
+  "HARD",
+] as const;
+
+export type ProblemDifficulty = (typeof problemDifficulties)[number];
+
 export const sessionRuntimeModes = [
   "opencode",
   "mock",
@@ -27,6 +41,8 @@ export interface CandidateSummary {
 export interface ProblemSummary {
   id: string;
   title: string;
+  type: ProblemType;
+  difficulty: ProblemDifficulty;
   durationMinutes: number;
   templatePath: string | null;
 }
@@ -62,10 +78,12 @@ export interface SessionDetailView {
 
 export interface CandidateListItem extends CandidateSummary {
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProblemListItem extends ProblemDetail {
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface AdminInterviewListItem {
@@ -94,6 +112,7 @@ export interface UpdateCandidateRequest extends CreateCandidateRequest {}
 export interface CreateProblemRequest {
   title: string;
   description: string;
+  difficulty: ProblemDifficulty;
   durationMinutes: number;
   templatePath?: string | null;
 }

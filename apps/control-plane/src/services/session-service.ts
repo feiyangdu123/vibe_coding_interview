@@ -4,8 +4,11 @@ import {
   Prisma,
   type Candidate,
   type Problem,
+  type ProblemDifficulty as PrismaProblemDifficulty,
+  type ProblemType as PrismaProblemType,
   type SessionRuntimeMode as PrismaSessionRuntimeMode,
 } from "@vibe-interview/db";
+import { problemDifficulties } from "@vibe-interview/shared-types";
 import type {
   AdminInterviewListItem,
   CandidateListItem,
@@ -16,9 +19,11 @@ import type {
   CreateProblemRequest,
   EndSessionRequest,
   InterviewEntryView,
+  ProblemDifficulty,
   ProblemDetail,
   ProblemListItem,
   ProblemSummary,
+  ProblemType,
   SessionDetailView,
   SessionRuntimeMode,
   SessionStatus,
@@ -656,6 +661,7 @@ export class SessionService {
       typeof payload.durationMinutes === "number"
         ? payload.durationMinutes
         : Number.parseInt(String(payload.durationMinutes), 10);
+    const difficulty = this.parseProblemDifficulty(payload.difficulty);
 
     if (!Number.isFinite(durationValue) || durationValue <= 0) {
       throw this.createHttpError(400, "面试时长必须是正整数。");
@@ -664,6 +670,8 @@ export class SessionService {
     return {
       title: this.requireString(payload.title, "题目标题不能为空。"),
       description: this.requireString(payload.description, "题目说明不能为空。"),
+      type: "PRACTICAL",
+      difficulty,
       durationMin: Math.round(durationValue),
       templatePath: this.toOptionalString(payload.templatePath),
     };
@@ -699,6 +707,7 @@ export class SessionService {
     return {
       ...this.toCandidateSummary(candidate),
       createdAt: candidate.createdAt.toISOString(),
+      updatedAt: candidate.updatedAt.toISOString(),
     };
   }
 
@@ -706,6 +715,8 @@ export class SessionService {
     return {
       id: problem.id,
       title: problem.title,
+      type: this.toProblemType(problem.type),
+      difficulty: this.toProblemDifficulty(problem.difficulty),
       durationMinutes: problem.durationMin,
       templatePath: problem.templatePath,
     };
@@ -722,6 +733,7 @@ export class SessionService {
     return {
       ...this.toProblemDetail(problem),
       createdAt: problem.createdAt.toISOString(),
+      updatedAt: problem.updatedAt.toISOString(),
     };
   }
 
@@ -773,6 +785,22 @@ export class SessionService {
       return null;
     }
 
+    return value;
+  }
+
+  private parseProblemDifficulty(value: string): PrismaProblemDifficulty {
+    if (problemDifficulties.includes(value as ProblemDifficulty)) {
+      return value as PrismaProblemDifficulty;
+    }
+
+    throw this.createHttpError(400, "题目难度不合法。");
+  }
+
+  private toProblemType(value: PrismaProblemType): ProblemType {
+    return value;
+  }
+
+  private toProblemDifficulty(value: PrismaProblemDifficulty): ProblemDifficulty {
     return value;
   }
 
