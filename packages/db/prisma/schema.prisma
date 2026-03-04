@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  CREATED
+  READY
+  RUNNING
+  SUBMITTED
+  EXPIRED
+  ARCHIVED
+}
+
+enum SessionRuntimeMode {
+  opencode
+  mock
+}
+
+model Candidate {
+  id         String      @id @default(cuid())
+  name       String
+  email      String      @unique
+  phone      String?
+  targetRole String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  deletedAt  DateTime?
+  interviews Interview[]
+}
+
+model Problem {
+  id           String      @id @default(cuid())
+  title        String
+  description  String
+  templatePath String?
+  durationMin  Int         @default(60)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  interviews   Interview[]
+}
+
+model Interview {
+  id          String          @id @default(cuid())
+  candidateId String
+  problemId   String
+  createdAt   DateTime        @default(now())
+  candidate   Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  problem     Problem         @relation(fields: [problemId], references: [id], onDelete: Restrict)
+  token       InterviewToken?
+  session     Session?
+}
+
+model InterviewToken {
+  id          String    @id @default(cuid())
+  interviewId String    @unique
+  token       String    @unique
+  expiresAt   DateTime?
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id               String              @id @default(cuid())
+  interviewId      String              @unique
+  status           SessionStatus       @default(CREATED)
+  workspacePath    String?
+  opencodeUrl      String?
+  opencodeUsername String?
+  opencodePassword String?
+  runtimeMode      SessionRuntimeMode?
+  startedAt        DateTime?
+  expiresAt        DateTime?
+  endedAt          DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  interview        Interview           @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  auditLogs        SessionAuditLog[]
+}
+
+model SessionAuditLog {
+  id        String   @id @default(cuid())
+  sessionId String
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}

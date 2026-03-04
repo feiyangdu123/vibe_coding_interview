@@ -1,0 +1,27 @@
+{
+  "name": "@vibe-interview/control-plane",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cookie": "latest",
+    "@fastify/cors": "latest",
+    "@fastify/rate-limit": "latest",
+    "@vibe-interview/config": "workspace:*",
+    "@vibe-interview/db": "workspace:*",
+    "@vibe-interview/shared-types": "workspace:*",
+    "@vibe-interview/workspace-core": "workspace:*",
+    "fastify": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

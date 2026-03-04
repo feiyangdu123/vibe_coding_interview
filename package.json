@@ -1,0 +1,19 @@
+{
+  "name": "vibe-coding-interview",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "dev:portal": "pnpm --filter @vibe-interview/portal-web dev",
+    "dev:control-plane": "pnpm --filter @vibe-interview/control-plane dev",
+    "typecheck": "turbo run typecheck",
+    "db:format": "pnpm --filter @vibe-interview/db exec prisma format --schema prisma/schema.prisma",
+    "db:generate": "pnpm --filter @vibe-interview/db exec prisma generate --schema prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "turbo": "latest",
+    "typescript": "latest"
+  }
+}
