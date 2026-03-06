@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Problem {
+  id              String      @id @default(uuid())
+  title           String
+  description     String      @db.Text
+  requirements    String      @db.Text
+  scoringCriteria Json
+  workDirTemplate String
+  duration        Int
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  interviews      Interview[]
+}
+
+model Candidate {
+  id         String      @id @default(uuid())
+  name       String
+  email      String      @unique
+  phone      String?
+  createdAt  DateTime    @default(now())
+  interviews Interview[]
+}
+
+model Interview {
+  id              String    @id @default(uuid())
+  candidateId     String
+  problemId       String
+  token           String    @unique
+  startTime       DateTime?
+  endTime         DateTime?
+  duration        Int
+  status          String    @default("pending")
+  workDir         String?
+  dataDir         String?
+  port            Int?      @unique
+  processId       Int?
+  healthStatus    String?
+  lastHealthCheck DateTime?
+  processError    String?
+  createdAt       DateTime  @default(now())
+
+  // AI 评估字段
+  aiEvaluationStatus  String?   // 'pending' | 'running' | 'completed' | 'failed' | 'timeout'
+  aiEvaluationScore   Float?    // 总分 (0-10)
+  aiEvaluationDetails String?   @db.Text // 评估结果文本（包含分数和原因）
+  aiEvaluationRaw     String?   @db.Text // AI 原始响应
+  aiEvaluationError   String?   @db.Text // 错误信息
+  aiEvaluatedAt       DateTime? // 评估完成时间
+  aiEvaluationRetries Int       @default(0) // 重试次数
+
+  candidate Candidate @relation(fields: [candidateId], references: [id])
+  problem   Problem   @relation(fields: [problemId], references: [id])
+
+  @@index([token])
+  @@index([status])
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@vibe/api",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.5.0",
+    "@vibe/database": "workspace:*",
+    "@vibe/opencode-manager": "workspace:*",
+    "@vibe/shared-types": "workspace:*",
+    "dotenv": "^17.3.1",
+    "fastify": "^4.25.0",
+    "nanoid": "^5.0.4",
+    "node-cron": "^3.0.3",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
