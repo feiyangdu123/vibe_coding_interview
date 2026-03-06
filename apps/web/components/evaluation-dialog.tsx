@@ -133,11 +133,40 @@ export function EvaluationDialog({ open, onOpenChange, interviewId }: Evaluation
                         <CardTitle>评估详情</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                          {typeof evaluation.aiEvaluationDetails === 'string'
-                            ? evaluation.aiEvaluationDetails
-                            : evaluation.aiEvaluationDetails.summary || JSON.stringify(evaluation.aiEvaluationDetails, null, 2)}
-                        </pre>
+                        {typeof evaluation.aiEvaluationDetails === 'string' ? (
+                          <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                            {evaluation.aiEvaluationDetails}
+                          </pre>
+                        ) : (
+                          <div className="space-y-4">
+                            {/* 各维度评分 */}
+                            {evaluation.aiEvaluationDetails.dimensions && evaluation.aiEvaluationDetails.dimensions.length > 0 && (
+                              <div className="space-y-3">
+                                {evaluation.aiEvaluationDetails.dimensions.map((dim, idx) => (
+                                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-medium">{idx + 1}. {dim.name}</span>
+                                      <span className={`font-bold ${getDimensionScoreColor(dim.score)}`}>
+                                        {dim.score}/2
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">{dim.reasoning}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* 整体评价 */}
+                            {evaluation.aiEvaluationDetails.summary && evaluation.aiEvaluationDetails.summary !== '无整体评价' && (
+                              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                                <h4 className="font-medium mb-2">整体评价</h4>
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                  {evaluation.aiEvaluationDetails.summary}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )}

@@ -54,8 +54,7 @@ interface Problem {
 const statusConfig = {
   pending: { label: '待开始', variant: 'warning' as const },
   in_progress: { label: '进行中', variant: 'info' as const },
-  completed: { label: '已完成', variant: 'success' as const },
-  expired: { label: '已过期', variant: 'error' as const }
+  completed: { label: '已完成', variant: 'success' as const }
 }
 
 export default function InterviewsPage() {
@@ -251,7 +250,6 @@ export default function InterviewsPage() {
               <option value="pending">待开始</option>
               <option value="in_progress">进行中</option>
               <option value="completed">已完成</option>
-              <option value="expired">已过期</option>
             </Select>
           </div>
 

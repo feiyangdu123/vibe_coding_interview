@@ -148,8 +148,8 @@ export default function InterviewPage() {
                   打开编程环境
                 </Button>
               )}
-              {interview.status === 'expired' && (
-                <div className="text-red-600 font-semibold">面试已结束</div>
+              {interview.status === 'completed' && (
+                <div className="text-gray-600 font-semibold">面试已结束</div>
               )}
             </div>
           </div>

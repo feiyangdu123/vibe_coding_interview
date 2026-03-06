@@ -303,7 +303,7 @@ function parseEvaluationResult(rawOutput: string): EvaluationResult {
     }
 
     // 提取整体评价
-    const summaryMatch = rawOutput.match(/整体评价[：:]\\s*(.+?)$/s);
+    const summaryMatch = rawOutput.match(/整体评价[：:]\s*(.+?)$/s);
     const summary = summaryMatch ? summaryMatch[1].trim() : '无整体评价';
 
     console.log(`[Evaluation] Parsed ${dimensions.length} dimensions, summary length: ${summary.length}`);

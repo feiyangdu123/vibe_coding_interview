@@ -1,4 +1,4 @@
-export type InterviewStatus = 'pending' | 'in_progress' | 'completed' | 'expired';
+export type InterviewStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface PaginationMeta {
   page: number;

@@ -20,7 +20,7 @@ export function startCleanupJob() {
       await prisma.interview.update({
         where: { id: interview.id },
         data: {
-          status: 'expired',
+          status: 'completed',
           port: null,
           processId: null,
           healthStatus: null

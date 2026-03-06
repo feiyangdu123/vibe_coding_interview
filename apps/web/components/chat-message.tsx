@@ -25,11 +25,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const timestamp = new Date(message.timestamp).toLocaleTimeString()
 
+  // Check if this is an evaluation prompt (contains the evaluation template text)
+  const isEvaluationPrompt = isUser && message.parts.some(part =>
+    part.type === 'text' && part.content.includes('你是一个评估候选人 vibe coding 能力的专家')
+  )
+
+  // Determine the role label
+  const roleLabel = isEvaluationPrompt ? 'AI研究员' : (isUser ? '候选人' : 'AI 助手')
+
   return (
     <div className={`mb-4 ${isUser ? 'ml-0' : 'ml-0'}`}>
       <div className="flex items-center gap-2 mb-1">
         <Badge variant={isUser ? 'default' : 'info'}>
-          {isUser ? '候选人' : 'AI 助手'}
+          {roleLabel}
         </Badge>
         <span className="text-xs text-muted-foreground">{timestamp}</span>
       </div>
