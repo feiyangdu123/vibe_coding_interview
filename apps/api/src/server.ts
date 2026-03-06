@@ -12,12 +12,16 @@ import { interviewRoutes } from './routes/admin/interviews';
 import processesRoutes from './routes/admin/processes';
 import { interviewPublicRoutes } from './routes/interview';
 import { startCleanupJob } from './services/cleanup-service';
+import { migrateExpiredStatus } from './services/migration-service';
 
 const fastify = Fastify({
   logger: true
 });
 
 async function start() {
+  // Run one-time migration for legacy data
+  await migrateExpiredStatus();
+
   await fastify.register(cors, {
     origin: true
   });

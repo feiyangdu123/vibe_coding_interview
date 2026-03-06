@@ -57,6 +57,15 @@ const statusConfig = {
   completed: { label: '已完成', variant: 'success' as const }
 }
 
+// Helper function to safely get status config with fallback
+const getStatusConfig = (status: string) => {
+  // Handle legacy 'expired' status by treating it as 'completed'
+  if (status === 'expired') {
+    return statusConfig.completed
+  }
+  return statusConfig[status as keyof typeof statusConfig] || { label: status, variant: 'default' as const }
+}
+
 export default function InterviewsPage() {
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -287,8 +296,8 @@ export default function InterviewsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusConfig[interview.status].variant}>
-                        {statusConfig[interview.status].label}
+                      <Badge variant={getStatusConfig(interview.status).variant}>
+                        {getStatusConfig(interview.status).label}
                       </Badge>
                     </TableCell>
                     <TableCell>
