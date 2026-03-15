@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@vibe/database';
 import type { CreateCandidateDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
+import { authMiddleware } from '../../middleware/auth';
 
 export async function candidateRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
   fastify.get<{ Querystring: { page?: string; limit?: string; search?: string } }>(
     '/api/admin/candidates',
     async (request) => {

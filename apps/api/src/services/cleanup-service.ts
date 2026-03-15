@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { prisma } from '@vibe/database';
+import { prisma, InterviewStatus } from '@vibe/database';
 import { getOpenCodeManager } from './interview-service';
 import { evaluateInterview } from './ai-evaluation-service';
 
@@ -10,7 +10,7 @@ export function startCleanupJob() {
     // 1. Handle expired interviews
     const expired = await prisma.interview.findMany({
       where: {
-        status: 'in_progress',
+        status: InterviewStatus.IN_PROGRESS,
         endTime: { lt: new Date() }
       }
     });
@@ -20,7 +20,7 @@ export function startCleanupJob() {
       await prisma.interview.update({
         where: { id: interview.id },
         data: {
-          status: 'completed',
+          status: InterviewStatus.COMPLETED,
           port: null,
           processId: null,
           healthStatus: null
@@ -37,7 +37,7 @@ export function startCleanupJob() {
 
     // 2. Detect crashed processes
     const inProgress = await prisma.interview.findMany({
-      where: { status: 'in_progress' }
+      where: { status: InterviewStatus.IN_PROGRESS }
     });
 
     for (const interview of inProgress) {
@@ -48,7 +48,7 @@ export function startCleanupJob() {
         await prisma.interview.update({
           where: { id: interview.id },
           data: {
-            status: 'completed',
+            status: InterviewStatus.COMPLETED,
             port: null,
             processId: null,
             healthStatus: 'unhealthy',

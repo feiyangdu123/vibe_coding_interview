@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { interviewSchema, type InterviewFormData } from '@vibe/shared-types'
 import type { PaginationMeta, InterviewStatus } from '@vibe/shared-types'
+import { apiFetch } from '@/lib/api'
 
 interface Interview {
   id: string
@@ -52,17 +53,16 @@ interface Problem {
 }
 
 const statusConfig = {
-  pending: { label: '待开始', variant: 'warning' as const },
-  in_progress: { label: '进行中', variant: 'info' as const },
-  completed: { label: '已完成', variant: 'success' as const }
+  PENDING: { label: '待开始', variant: 'warning' as const },
+  IN_PROGRESS: { label: '进行中', variant: 'info' as const },
+  COMPLETED: { label: '已完成', variant: 'success' as const },
+  EXPIRED: { label: '已过期', variant: 'default' as const },
+  CANCELLED: { label: '已取消', variant: 'default' as const },
+  SUBMITTED: { label: '已提交', variant: 'success' as const }
 }
 
 // Helper function to safely get status config with fallback
 const getStatusConfig = (status: string) => {
-  // Handle legacy 'expired' status by treating it as 'completed'
-  if (status === 'expired') {
-    return statusConfig.completed
-  }
   return statusConfig[status as keyof typeof statusConfig] || { label: status, variant: 'default' as const }
 }
 
@@ -101,34 +101,25 @@ export default function InterviewsPage() {
     }
   })
 
-  const loadInterviews = () => {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: pageSize.toString(),
-      ...(debouncedSearch && { search: debouncedSearch }),
-      ...(statusFilter !== 'all' && { status: statusFilter })
-    })
+  const loadInterviews = async () => {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pageSize.toString(),
+        ...(debouncedSearch && { search: debouncedSearch }),
+        ...(statusFilter !== 'all' && { status: statusFilter })
+      })
 
-    fetch(`http://localhost:3001/api/admin/interviews?${params}`)
-      .then(res => res.json())
-      .then(response => {
-        if (response.data) {
-          setInterviews(response.data)
-          setPagination(response.pagination)
-        } else {
-          setInterviews([])
-          if (response.error || response.message) {
-            toast.error(response.error || response.message)
-          }
-        }
-        setLoading(false)
-      })
-      .catch(err => {
-        console.error(err)
-        setInterviews([])
-        toast.error('加载失败')
-        setLoading(false)
-      })
+      const response = await apiFetch(`/api/admin/interviews?${params}`)
+      setInterviews(response.data || [])
+      setPagination(response.pagination)
+      setLoading(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('加载失败')
+      setInterviews([])
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -137,13 +128,11 @@ export default function InterviewsPage() {
 
   useEffect(() => {
     // Load candidates and problems for the form (without pagination)
-    fetch('http://localhost:3001/api/admin/candidates?limit=1000')
-      .then(res => res.json())
+    apiFetch('/api/admin/candidates?limit=1000')
       .then(response => setCandidates(response.data || response))
       .catch(err => console.error(err))
 
-    fetch('http://localhost:3001/api/admin/problems?limit=1000')
-      .then(res => res.json())
+    apiFetch('/api/admin/problems?limit=1000')
       .then(response => setProblems(response.data || response))
       .catch(err => console.error(err))
   }, [])
@@ -161,24 +150,18 @@ export default function InterviewsPage() {
     setSubmitting(true)
 
     try {
-      const res = await fetch('http://localhost:3001/api/admin/interviews', {
+      const interview = await apiFetch('/api/admin/interviews', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
 
-      if (res.ok) {
-        const interview = await res.json()
-        setDialogOpen(false)
-        loadInterviews()
+      setDialogOpen(false)
+      loadInterviews()
 
-        // Show the interview link
-        const link = `${window.location.origin}/interview/${interview.token}`
-        toast.success('面试创建成功！链接已复制到剪贴板')
-        navigator.clipboard.writeText(link)
-      } else {
-        toast.error('创建失败')
-      }
+      // Show the interview link
+      const link = `${window.location.origin}/interview/${interview.token}`
+      toast.success('面试创建成功！链接已复制到剪贴板')
+      navigator.clipboard.writeText(link)
     } catch (err) {
       console.error(err)
       toast.error('创建失败')
@@ -207,16 +190,12 @@ export default function InterviewsPage() {
     if (!deletingInterviewId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/interviews/${deletingInterviewId}`, {
+      await apiFetch(`/api/admin/interviews/${deletingInterviewId}`, {
         method: 'DELETE'
       })
 
-      if (res.ok) {
-        loadInterviews()
-        toast.success('面试删除成功')
-      } else {
-        toast.error('删除失败')
-      }
+      loadInterviews()
+      toast.success('面试删除成功')
     } catch (err) {
       console.error(err)
       toast.error('删除失败')
@@ -342,7 +321,7 @@ export default function InterviewsPage() {
                           setSelectedInterviewId(interview.id)
                           setChatDialogOpen(true)
                         }}
-                        disabled={interview.status === 'pending'}
+                        disabled={interview.status === 'PENDING'}
                       >
                         查看聊天
                       </Button>

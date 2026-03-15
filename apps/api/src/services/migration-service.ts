@@ -1,4 +1,4 @@
-import { prisma } from '@vibe/database';
+import { prisma, InterviewStatus } from '@vibe/database';
 
 /**
  * One-time migration to update legacy 'expired' status to 'completed'
@@ -8,10 +8,10 @@ export async function migrateExpiredStatus() {
   try {
     const result = await prisma.interview.updateMany({
       where: {
-        status: 'expired'
+        status: InterviewStatus.EXPIRED
       },
       data: {
-        status: 'completed'
+        status: InterviewStatus.COMPLETED
       }
     });
 

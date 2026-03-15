@@ -1,12 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@vibe/database';
+import { prisma, InterviewStatus } from '@vibe/database';
 import { createInterview } from '../../services/interview-service';
 import { getChatHistory } from '../../services/chat-history-service';
 import { evaluateInterview } from '../../services/ai-evaluation-service';
-import type { CreateInterviewDto, InterviewStatus } from '@vibe/shared-types';
+import type { CreateInterviewDto, SubmitManualReviewDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
+import { authMiddleware } from '../../middleware/auth';
 
 export async function interviewRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+
   fastify.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string } }>(
     '/api/admin/interviews',
     async (request) => {
@@ -14,7 +17,9 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       const search = request.query.search?.trim() || '';
       const status = request.query.status?.trim() || 'all';
 
-      const where: any = {};
+      const where: any = {
+        organizationId: request.user!.organizationId
+      };
 
       // Status filter
       if (status && status !== 'all') {
@@ -35,7 +40,8 @@ export async function interviewRoutes(fastify: FastifyInstance) {
           where,
           include: {
             candidate: true,
-            problem: true
+            problem: true,
+            interviewer: true
           },
           orderBy: { createdAt: 'desc' },
           skip: getPaginationSkip(page, limit),
@@ -51,18 +57,30 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     }
   );
 
-  fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request) => {
-    return await prisma.interview.findUnique({
+  fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request, reply) => {
+    const interview = await prisma.interview.findUnique({
       where: { id: request.params.id },
       include: {
         candidate: true,
-        problem: true
+        problem: true,
+        interviewer: true
       }
     });
+
+    if (!interview || interview.organizationId !== request.user!.organizationId) {
+      reply.code(404).send({ error: 'Interview not found' });
+      return;
+    }
+
+    return interview;
   });
 
   fastify.post<{ Body: CreateInterviewDto }>('/api/admin/interviews', async (request) => {
-    return await createInterview(request.body);
+    return await createInterview(
+      request.body,
+      request.user!.organizationId,
+      request.user!.id
+    );
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request, reply) => {
@@ -73,13 +91,13 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         where: { id }
       });
 
-      if (!interview) {
+      if (!interview || interview.organizationId !== request.user!.organizationId) {
         reply.code(404).send({ error: 'Interview not found' });
         return;
       }
 
       // If interview is in progress, stop the OpenCode instance
-      if (interview.status === 'in_progress' && interview.processId) {
+      if (interview.status === InterviewStatus.IN_PROGRESS && interview.processId) {
         try {
           process.kill(interview.processId);
         } catch (error) {
@@ -174,7 +192,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      if (interview.status === 'pending' || interview.status === 'in_progress') {
+      if (interview.status === InterviewStatus.PENDING || interview.status === InterviewStatus.IN_PROGRESS) {
         reply.code(400).send({ error: 'Interview must be completed first' });
         return;
       }
@@ -184,6 +202,33 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       });
 
       return { message: 'Evaluation started' };
+    }
+  );
+
+  // Submit manual review
+  fastify.post<{ Params: { id: string }; Body: SubmitManualReviewDto }>(
+    '/api/admin/interviews/:id/manual-review',
+    async (request, reply) => {
+      const interview = await prisma.interview.findUnique({
+        where: { id: request.params.id }
+      });
+
+      if (!interview || interview.organizationId !== request.user!.organizationId) {
+        reply.code(404).send({ error: 'Interview not found' });
+        return;
+      }
+
+      return await prisma.interview.update({
+        where: { id: request.params.id },
+        data: {
+          manualReviewStatus: 'completed',
+          manualReviewScore: request.body.manualReviewScore,
+          manualReviewNotes: request.body.manualReviewNotes,
+          manualReviewConclusion: request.body.manualReviewConclusion,
+          manualReviewedAt: new Date(),
+          manualReviewedBy: request.user!.id
+        }
+      });
     }
   );
 }

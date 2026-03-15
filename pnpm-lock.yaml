@@ -20,6 +20,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@fastify/cookie':
+        specifier: ^9.0.0
+        version: 9.4.0
       '@fastify/cors':
         specifier: ^8.5.0
         version: 8.5.0
@@ -143,6 +146,9 @@ importers:
       prisma:
         specifier: ^5.8.0
         version: 5.22.0
+      tsx:
+        specifier: ^4.7.0
+        version: 4.21.0
 
   packages/opencode-manager:
     devDependencies:
@@ -155,6 +161,9 @@ importers:
 
   packages/shared-types:
     dependencies:
+      '@vibe/database':
+        specifier: workspace:*
+        version: link:../database
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -472,6 +481,13 @@ packages:
       ajv: 8.18.0
       ajv-formats: 2.1.1(ajv@8.18.0)
       fast-uri: 2.4.0
+    dev: false
+
+  /@fastify/cookie@9.4.0:
+    resolution: {integrity: sha512-Th+pt3kEkh4MQD/Q2q1bMuJIB5NX/D5SwSpOKu3G/tjoGbwfpurIMJsWSPS0SJJ4eyjtmQ8OipDQspf8RbUOlg==}
+    dependencies:
+      cookie-signature: 1.2.2
+      fastify-plugin: 4.5.1
     dev: false
 
   /@fastify/cors@8.5.0:
@@ -1678,6 +1694,11 @@ packages:
     requiresBuild: true
     dev: false
     optional: true
+
+  /cookie-signature@1.2.2:
+    resolution: {integrity: sha512-D76uU73ulSXrD1UXF4KE2TMxVVwhsnCgfAyTg9k8P6KGZjlXKrOLe4dJQKI3Bxi5wjesZoFXJWElNWBjPZMbhg==}
+    engines: {node: '>=6.6.0'}
+    dev: false
 
   /cookie@0.7.2:
     resolution: {integrity: sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==}

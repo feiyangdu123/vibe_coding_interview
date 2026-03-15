@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { candidateSchema, type CandidateFormData } from '@vibe/shared-types'
 import type { PaginationMeta } from '@vibe/shared-types'
+import { apiFetch } from '@/lib/api'
 
 interface Candidate {
   id: string
@@ -54,25 +55,24 @@ export default function CandidatesPage() {
     }
   })
 
-  const loadCandidates = () => {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: pageSize.toString(),
-      ...(debouncedSearch && { search: debouncedSearch })
-    })
+  const loadCandidates = async () => {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pageSize.toString(),
+        ...(debouncedSearch && { search: debouncedSearch })
+      })
 
-    fetch(`http://localhost:3001/api/admin/candidates?${params}`)
-      .then(res => res.json())
-      .then(response => {
-        setCandidates(response.data)
-        setPagination(response.pagination)
-        setLoading(false)
-      })
-      .catch(err => {
-        console.error(err)
-        toast.error('加载失败')
-        setLoading(false)
-      })
+      const response = await apiFetch(`/api/admin/candidates?${params}`)
+      setCandidates(response.data || [])
+      setPagination(response.pagination)
+      setLoading(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('加载失败')
+      setCandidates([])
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -104,14 +104,13 @@ export default function CandidatesPage() {
 
     try {
       const url = editingCandidate
-        ? `http://localhost:3001/api/admin/candidates/${editingCandidate.id}`
-        : 'http://localhost:3001/api/admin/candidates'
+        ? `/api/admin/candidates/${editingCandidate.id}`
+        : '/api/admin/candidates'
 
       const method = editingCandidate ? 'PUT' : 'POST'
 
-      const res = await fetch(url, {
+      await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: data.name,
           email: data.email,
@@ -119,13 +118,9 @@ export default function CandidatesPage() {
         })
       })
 
-      if (res.ok) {
-        setDialogOpen(false)
-        loadCandidates()
-        toast.success(editingCandidate ? '候选人更新成功' : '候选人创建成功')
-      } else {
-        toast.error('操作失败')
-      }
+      setDialogOpen(false)
+      loadCandidates()
+      toast.success(editingCandidate ? '候选人更新成功' : '候选人创建成功')
     } catch (err) {
       console.error(err)
       toast.error('操作失败')
@@ -143,20 +138,15 @@ export default function CandidatesPage() {
     if (!deletingCandidateId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/candidates/${deletingCandidateId}`, {
+      await apiFetch(`/api/admin/candidates/${deletingCandidateId}`, {
         method: 'DELETE'
       })
 
-      if (res.ok) {
-        loadCandidates()
-        toast.success('候选人删除成功')
-      } else {
-        const error = await res.json()
-        toast.error(error.error || '删除失败')
-      }
-    } catch (err) {
+      loadCandidates()
+      toast.success('候选人删除成功')
+    } catch (err: any) {
       console.error(err)
-      toast.error('删除失败')
+      toast.error(err.message || '删除失败')
     } finally {
       setDeletingCandidateId(null)
       setDeleteDialogOpen(false)

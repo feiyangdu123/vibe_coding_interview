@@ -7,6 +7,83 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ORG_ADMIN
+  INTERVIEWER
+}
+
+enum ProblemVisibility {
+  PRIVATE
+  ORG_SHARED
+}
+
+enum ProblemType {
+  CODING
+  SYSTEM_DESIGN
+  ALGORITHM
+  DEBUGGING
+}
+
+enum InterviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  CANCELLED
+  SUBMITTED
+}
+
+enum EndReason {
+  TIME_UP
+  CANDIDATE_SUBMIT
+  INTERVIEWER_STOP
+  SYSTEM_ERROR
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  problems   Problem[]
+  interviews Interview[]
+}
+
+model User {
+  id             String   @id @default(uuid())
+  username       String   @unique
+  passwordHash   String
+  email          String?
+  role           UserRole
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdProblems     Problem[]     @relation("ProblemCreator")
+  conductedInterviews Interview[]   @relation("InterviewInterviewer")
+  sessions            AuthSession[]
+
+  @@index([organizationId])
+  @@index([username])
+}
+
+model AuthSession {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 model Problem {
   id              String      @id @default(uuid())
   title           String
@@ -17,7 +94,27 @@ model Problem {
   duration        Int
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
-  interviews      Interview[]
+
+  // 新增字段
+  organizationId             String
+  createdById                String
+  visibility                 ProblemVisibility @default(PRIVATE)
+  problemType                ProblemType       @default(CODING)
+  roleTrack                  String?
+  difficulty                 String?
+  language                   String?
+  tags                       String[]          @default([])
+  evaluationInstructionsText String?           @db.Text
+  acceptanceCriteria         Json?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("ProblemCreator", fields: [createdById], references: [id])
+  interviews   Interview[]
+
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([visibility])
+  @@index([problemType])
 }
 
 model Candidate {
@@ -30,22 +127,32 @@ model Candidate {
 }
 
 model Interview {
-  id              String    @id @default(uuid())
+  id              String           @id @default(uuid())
   candidateId     String
   problemId       String
-  token           String    @unique
+  token           String           @unique
   startTime       DateTime?
   endTime         DateTime?
   duration        Int
-  status          String    @default("pending")
+  status          InterviewStatus  @default(PENDING)
   workDir         String?
   dataDir         String?
-  port            Int?      @unique
+  port            Int?             @unique
   processId       Int?
   healthStatus    String?
   lastHealthCheck DateTime?
   processError    String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime         @default(now())
+
+  // 新增字段
+  organizationId String
+  interviewerId  String?
+  endReason      EndReason?
+
+  // 快照字段
+  candidateSnapshot          Json?
+  problemSnapshot            Json?
+  evaluationCriteriaSnapshot Json?
 
   // AI 评估字段
   aiEvaluationStatus  String?   // 'pending' | 'running' | 'completed' | 'failed' | 'timeout'
@@ -56,9 +163,22 @@ model Interview {
   aiEvaluatedAt       DateTime? // 评估完成时间
   aiEvaluationRetries Int       @default(0) // 重试次数
 
-  candidate Candidate @relation(fields: [candidateId], references: [id])
-  problem   Problem   @relation(fields: [problemId], references: [id])
+  // 人工复核字段
+  manualReviewStatus     String?
+  manualReviewScore      Float?
+  manualReviewNotes      String?   @db.Text
+  manualReviewConclusion String?   @db.Text
+  manualReviewedAt       DateTime?
+  manualReviewedBy       String?
+
+  candidate    Candidate    @relation(fields: [candidateId], references: [id])
+  problem      Problem      @relation(fields: [problemId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  interviewer  User?        @relation("InterviewInterviewer", fields: [interviewerId], references: [id])
 
   @@index([token])
   @@index([status])
+  @@index([organizationId])
+  @@index([interviewerId])
+  @@index([manualReviewStatus])
 }

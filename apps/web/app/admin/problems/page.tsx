@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { problemSchema, type ProblemFormData } from '@vibe/shared-types'
 import type { PaginationMeta } from '@vibe/shared-types'
+import { apiFetch } from '@/lib/api'
 
 interface Problem {
   id: string
@@ -60,25 +61,24 @@ export default function ProblemsPage() {
     }
   })
 
-  const loadProblems = () => {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: pageSize.toString(),
-      ...(debouncedSearch && { search: debouncedSearch })
-    })
+  const loadProblems = async () => {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pageSize.toString(),
+        ...(debouncedSearch && { search: debouncedSearch })
+      })
 
-    fetch(`http://localhost:3001/api/admin/problems?${params}`)
-      .then(res => res.json())
-      .then(response => {
-        setProblems(response.data)
-        setPagination(response.pagination)
-        setLoading(false)
-      })
-      .catch(err => {
-        console.error(err)
-        toast.error('加载失败')
-        setLoading(false)
-      })
+      const response = await apiFetch(`/api/admin/problems?${params}`)
+      setProblems(response.data || [])
+      setPagination(response.pagination)
+      setLoading(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('加载失败')
+      setProblems([])
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -116,24 +116,19 @@ export default function ProblemsPage() {
 
     try {
       const url = editingProblem
-        ? `http://localhost:3001/api/admin/problems/${editingProblem.id}`
-        : 'http://localhost:3001/api/admin/problems'
+        ? `/api/admin/problems/${editingProblem.id}`
+        : '/api/admin/problems'
 
       const method = editingProblem ? 'PUT' : 'POST'
 
-      const res = await fetch(url, {
+      await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
 
-      if (res.ok) {
-        setDialogOpen(false)
-        loadProblems()
-        toast.success(editingProblem ? '题目更新成功' : '题目创建成功')
-      } else {
-        toast.error('操作失败')
-      }
+      setDialogOpen(false)
+      loadProblems()
+      toast.success(editingProblem ? '题目更新成功' : '题目创建成功')
     } catch (err) {
       console.error(err)
       toast.error('操作失败')
@@ -151,16 +146,12 @@ export default function ProblemsPage() {
     if (!deletingProblemId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/problems/${deletingProblemId}`, {
+      await apiFetch(`/api/admin/problems/${deletingProblemId}`, {
         method: 'DELETE'
       })
 
-      if (res.ok) {
-        loadProblems()
-        toast.success('题目删除成功')
-      } else {
-        toast.error('删除失败')
-      }
+      loadProblems()
+      toast.success('题目删除成功')
     } catch (err) {
       console.error(err)
       toast.error('删除失败')

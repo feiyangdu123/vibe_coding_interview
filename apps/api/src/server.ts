@@ -6,6 +6,8 @@ config({ path: resolve(__dirname, '../../../.env') });
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
+import { authRoutes } from './routes/auth';
 import { problemRoutes } from './routes/admin/problems';
 import { candidateRoutes } from './routes/admin/candidates';
 import { interviewRoutes } from './routes/admin/interviews';
@@ -23,8 +25,11 @@ async function start() {
   await migrateExpiredStatus();
 
   await fastify.register(cors, {
-    origin: true
+    origin: 'http://localhost:3000',
+    credentials: true
   });
+
+  await fastify.register(cookie);
 
   // Health check
   fastify.get('/', async () => {
@@ -39,6 +44,7 @@ async function start() {
     return { status: 'healthy' };
   });
 
+  await fastify.register(authRoutes);
   await fastify.register(problemRoutes);
   await fastify.register(candidateRoutes);
   await fastify.register(interviewRoutes);

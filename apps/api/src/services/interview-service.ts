@@ -1,4 +1,4 @@
-import { prisma, Prisma } from '@vibe/database';
+import { prisma, Prisma, InterviewStatus } from '@vibe/database';
 import { OpenCodeManager } from '@vibe/opencode-manager';
 import { nanoid } from 'nanoid';
 import type { CreateInterviewDto } from '@vibe/shared-types';
@@ -18,7 +18,7 @@ export async function getOpenCodeManager(): Promise<OpenCodeManager> {
     // Initialize with active ports from database
     const activeInterviews = await prisma.interview.findMany({
       where: {
-        status: 'in_progress',
+        status: InterviewStatus.IN_PROGRESS,
         port: { not: null }
       },
       select: { port: true }
@@ -59,7 +59,11 @@ function copyDirectorySync(src: string, dest: string): void {
   }
 }
 
-export async function createInterview(data: CreateInterviewDto): Promise<InterviewWithRelations> {
+export async function createInterview(
+  data: CreateInterviewDto,
+  organizationId: string,
+  interviewerId?: string
+): Promise<InterviewWithRelations> {
   const token = nanoid(16);
 
   // 获取 Problem 以访问 workDirTemplate
@@ -69,6 +73,14 @@ export async function createInterview(data: CreateInterviewDto): Promise<Intervi
 
   if (!problem) {
     throw new Error('Problem not found');
+  }
+
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: data.candidateId }
+  });
+
+  if (!candidate) {
+    throw new Error('Candidate not found');
   }
 
   // 创建面试专属工作目录
@@ -83,15 +95,39 @@ export async function createInterview(data: CreateInterviewDto): Promise<Intervi
     throw new Error('Failed to prepare interview workspace');
   }
 
+  // 创建快照
+  const candidateSnapshot = {
+    name: candidate.name,
+    email: candidate.email,
+    phone: candidate.phone
+  };
+
+  const problemSnapshot = {
+    title: problem.title,
+    description: problem.description,
+    requirements: problem.requirements,
+    duration: problem.duration,
+    difficulty: problem.difficulty,
+    roleTrack: problem.roleTrack,
+    language: problem.language
+  };
+
+  const evaluationCriteriaSnapshot = problem.scoringCriteria as any;
+
   const interview = await prisma.interview.create({
     data: {
       candidateId: data.candidateId,
       problemId: data.problemId,
       token,
       duration: data.duration,
-      status: 'pending',
-      workDir: interviewWorkDir, // 存储面试专属目录
-      aiEvaluationStatus: 'pending' // 初始化评估状态
+      status: InterviewStatus.PENDING,
+      workDir: interviewWorkDir,
+      organizationId,
+      interviewerId,
+      candidateSnapshot: candidateSnapshot as any,
+      problemSnapshot: problemSnapshot as any,
+      evaluationCriteriaSnapshot,
+      aiEvaluationStatus: 'pending'
     },
     include: {
       candidate: true,
@@ -108,7 +144,7 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
     include: { problem: true, candidate: true }
   });
 
-  if (!interview || interview.status !== 'pending') {
+  if (!interview || interview.status !== InterviewStatus.PENDING) {
     throw new Error('Invalid interview');
   }
 
@@ -130,12 +166,12 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
     return await prisma.interview.update({
       where: { id: interview.id },
       data: {
-        status: 'in_progress',
+        status: InterviewStatus.IN_PROGRESS,
         startTime,
         endTime,
         port,
         processId,
-        dataDir, // dataDir 由 OpenCodeManager 生成
+        dataDir,
         healthStatus: 'healthy',
         lastHealthCheck: startTime
       },

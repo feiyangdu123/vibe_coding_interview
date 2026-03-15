@@ -1,8 +1,11 @@
 import { FastifyInstance } from 'fastify';
-import { prisma } from '@vibe/database';
+import { prisma, InterviewStatus } from '@vibe/database';
 import { getOpenCodeManager } from '../../services/interview-service';
+import { authMiddleware } from '../../middleware/auth';
 
 export default async function processesRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+
   // Get all process statuses
   fastify.get('/api/admin/processes', async (request, reply) => {
     try {
@@ -10,7 +13,10 @@ export default async function processesRoutes(fastify: FastifyInstance) {
 
       // Get all in-progress interviews from database
       const interviews = await prisma.interview.findMany({
-        where: { status: 'in_progress' },
+        where: {
+          status: InterviewStatus.IN_PROGRESS,
+          organizationId: request.user!.organizationId
+        },
         include: {
           candidate: true,
           problem: true
@@ -29,7 +35,7 @@ export default async function processesRoutes(fastify: FastifyInstance) {
           const inDatabase = true;
 
           let healthStatus = interview.healthStatus || 'unknown';
-          let status = interview.status;
+          let status: string = interview.status;
 
           // Detect crashed processes
           if (inDatabase && !inMemory) {
@@ -75,11 +81,19 @@ export default async function processesRoutes(fastify: FastifyInstance) {
         const { interviewId } = request.params;
         const manager = await getOpenCodeManager();
 
+        const interview = await prisma.interview.findUnique({
+          where: { id: interviewId }
+        });
+
+        if (!interview || interview.organizationId !== request.user!.organizationId) {
+          return reply.status(404).send({ error: 'Interview not found' });
+        }
+
         await manager.stopInstance(interviewId);
         await prisma.interview.update({
           where: { id: interviewId },
           data: {
-            status: 'completed',
+            status: InterviewStatus.COMPLETED,
             port: null,
             processId: null,
             healthStatus: null
