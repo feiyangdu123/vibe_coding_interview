@@ -63,18 +63,18 @@ function ChatPart({ part }: { part: ChatPart }) {
 
     case 'reasoning':
       return (
-        <div className="border border-purple-200 rounded p-2 my-2 bg-purple-50">
+        <div className="my-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setReasoningExpanded(!reasoningExpanded)}
-            className="flex items-center gap-1 p-0 h-auto text-purple-700 hover:text-purple-900"
+            className="h-auto gap-1 p-0 text-slate-600 hover:text-slate-900"
           >
             {reasoningExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             <span className="text-xs font-medium">推理过程</span>
           </Button>
           {reasoningExpanded && (
-            <div className="mt-2 text-xs text-purple-900 whitespace-pre-wrap">
+            <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">
               {part.content}
             </div>
           )}

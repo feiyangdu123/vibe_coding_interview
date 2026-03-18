@@ -1,7 +1,7 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "./button"
-import { Select } from "./select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select"
 
 interface PaginationProps {
   page: number
@@ -24,24 +24,29 @@ export function Pagination({
   const endItem = Math.min(page * pageSize, total)
 
   return (
-    <div className="flex items-center justify-between px-2 py-4">
+    <div className="flex flex-col gap-4 border-t border-border px-1 pt-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center space-x-2">
         <p className="text-sm text-muted-foreground">
           显示 {startItem} 到 {endItem} 条，共 {total} 条
         </p>
       </div>
 
-      <div className="flex items-center space-x-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-6 sm:gap-0">
         <div className="flex items-center space-x-2">
           <p className="text-sm font-medium">每页显示</p>
           <Select
             value={pageSize.toString()}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            onValueChange={(value) => onPageSizeChange(Number(value))}
           >
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
+            <SelectTrigger className="w-[74px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
           </Select>
         </div>
 

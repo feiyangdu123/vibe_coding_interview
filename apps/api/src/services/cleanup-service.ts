@@ -1,39 +1,44 @@
 import cron from 'node-cron';
 import { prisma, InterviewStatus } from '@vibe/database';
-import { getOpenCodeManager } from './interview-service';
-import { evaluateInterview } from './ai-evaluation-service';
+import {
+  getOpenCodeManager,
+  completeInterviewOnTimeout,
+  markInterviewAsNoShow,
+  voidInterviewForSystemError
+} from './interview-service';
+import { cleanupStaleEvaluationSnapshots } from './opencode-runtime-service';
+
+const EVALUATION_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function startCleanupJob() {
   cron.schedule('*/1 * * * *', async () => {
-    const manager = await getOpenCodeManager();
+    const now = new Date();
 
-    // 1. Handle expired interviews
+    const noShowInterviews = await prisma.interview.findMany({
+      where: {
+        status: InterviewStatus.PENDING,
+        joinDeadlineAt: { lt: now }
+      },
+      select: { id: true }
+    });
+
+    for (const interview of noShowInterviews) {
+      await markInterviewAsNoShow(interview.id);
+    }
+
+    // 1. Handle timed out interviews
     const expired = await prisma.interview.findMany({
       where: {
         status: InterviewStatus.IN_PROGRESS,
-        endTime: { lt: new Date() }
+        endTime: { lt: now }
       }
     });
 
     for (const interview of expired) {
-      await manager.stopInstance(interview.id);
-      await prisma.interview.update({
-        where: { id: interview.id },
-        data: {
-          status: InterviewStatus.COMPLETED,
-          port: null,
-          processId: null,
-          healthStatus: null
-        }
-      });
-
-      // 触发 AI 评估（异步，不阻塞清理流程）
-      if (interview.aiEvaluationStatus === 'pending') {
-        evaluateInterview(interview.id).catch(err => {
-          console.error(`Failed to start evaluation for ${interview.id}:`, err);
-        });
-      }
+      await completeInterviewOnTimeout(interview.id);
     }
+
+    const manager = await getOpenCodeManager();
 
     // 2. Detect crashed processes
     const inProgress = await prisma.interview.findMany({
@@ -44,24 +49,7 @@ export function startCleanupJob() {
       const instance = manager.getInstance(interview.id);
 
       if (!instance) {
-        // Database shows running but process doesn't exist = crashed
-        await prisma.interview.update({
-          where: { id: interview.id },
-          data: {
-            status: InterviewStatus.COMPLETED,
-            port: null,
-            processId: null,
-            healthStatus: 'unhealthy',
-            processError: 'Process crashed unexpectedly'
-          }
-        });
-
-        // 崩溃的面试也触发评估
-        if (interview.aiEvaluationStatus === 'pending') {
-          evaluateInterview(interview.id).catch(err => {
-            console.error(`Failed to start evaluation for ${interview.id}:`, err);
-          });
-        }
+        await voidInterviewForSystemError(interview.id, 'Process crashed unexpectedly');
       } else if (interview.port) {
         // Perform health check
         const isHealthy = await manager.checkHealth(interview.port);
@@ -74,5 +62,7 @@ export function startCleanupJob() {
         });
       }
     }
+
+    cleanupStaleEvaluationSnapshots(EVALUATION_SNAPSHOT_MAX_AGE_MS);
   });
 }

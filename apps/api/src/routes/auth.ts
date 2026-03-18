@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { LoginDto, RegisterDto } from '@vibe/shared-types';
-import { login, register, logout, validateSession } from '../services/auth-service';
+import { login, register, logout } from '../services/auth-service';
 import { authMiddleware } from '../middleware/auth';
 
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -29,11 +29,26 @@ export async function authRoutes(fastify: FastifyInstance) {
   // Register (for initial setup)
   fastify.post<{ Body: RegisterDto }>('/api/auth/register', async (request, reply) => {
     try {
-      const user = await register(request.body);
-      return { user };
+      const result = await register(request.body);
+
+      reply.setCookie('sessionToken', result.sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: COOKIE_MAX_AGE,
+        path: '/'
+      });
+
+      return { user: result.user };
     } catch (error: any) {
       if (error.code === 'P2002') {
-        reply.code(400).send({ error: 'Username already exists' });
+        const target = Array.isArray(error.meta?.target) ? error.meta.target.join(',') : '';
+        const message = target.includes('username')
+          ? '用户名已存在'
+          : target.includes('slug')
+            ? '企业标识已存在'
+            : '创建企业失败，数据已存在';
+        reply.code(400).send({ error: message });
         return;
       }
       throw error;
@@ -57,4 +72,3 @@ export async function authRoutes(fastify: FastifyInstance) {
     return { user: request.user };
   });
 }
-

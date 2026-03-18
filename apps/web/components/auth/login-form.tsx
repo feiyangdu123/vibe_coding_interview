@@ -1,90 +1,216 @@
 'use client'
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/api'
+
+type AuthMode = 'login' | 'register'
 
 export function LoginForm() {
-  const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const router = useRouter()
+  const [mode, setMode] = useState<AuthMode>('login')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [organizationName, setOrganizationName] = useState('')
+  const [registerUsername, setRegisterUsername] = useState('')
+  const [registerEmail, setRegisterEmail] = useState('')
+  const [registerPassword, setRegisterPassword] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
 
     try {
       await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ username, password })
-      });
-
-      router.push('/admin');
+        body: JSON.stringify({
+          username: loginUsername,
+          password: loginPassword
+        })
+      })
+      router.push('/admin')
     } catch (err: any) {
-      setError(err.message || '登录失败');
+      setError(err.message || '登录失败')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      await apiFetch('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationName,
+          username: registerUsername,
+          email: registerEmail || undefined,
+          password: registerPassword
+        })
+      })
+      router.push('/admin')
+    } catch (err: any) {
+      setError(err.message || '注册失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div>
-        <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
-          用户名
-        </label>
-        <input
-          id="username"
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-400 backdrop-blur-sm transition-all"
-          placeholder="请输入用户名"
-          disabled={loading}
-        />
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 rounded-lg border border-border bg-slate-50 p-1">
+        <button
+          type="button"
+          onClick={() => {
+            setMode('login')
+            setError('')
+          }}
+          className={cn(
+            'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+            mode === 'login' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+          )}
+        >
+          登录
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode('register')
+            setError('')
+          }}
+          className={cn(
+            'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+            mode === 'register' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+          )}
+        >
+          注册企业
+        </button>
       </div>
 
-      <div>
-        <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
-          密码
-        </label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-400 backdrop-blur-sm transition-all"
-          placeholder="请输入密码"
-          disabled={loading}
-        />
-      </div>
+      {mode === 'login' ? (
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="username" className="block text-sm font-medium text-slate-700">
+              用户名
+            </label>
+            <Input
+              id="username"
+              type="text"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              placeholder="请输入用户名"
+              disabled={loading}
+              required
+            />
+          </div>
 
-      {error && (
-        <div className="bg-red-500/20 border border-red-500/50 text-red-200 text-sm p-3 rounded-lg backdrop-blur-sm">
-          {error}
-        </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+              密码
+            </label>
+            <Input
+              id="password"
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="请输入密码"
+              disabled={loading}
+              required
+            />
+          </div>
+
+          {error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? '登录中...' : '登录'}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={handleRegister} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="organizationName" className="block text-sm font-medium text-slate-700">
+              企业名称
+            </label>
+            <Input
+              id="organizationName"
+              type="text"
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
+              placeholder="例如：Acme Tech"
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="registerUsername" className="block text-sm font-medium text-slate-700">
+              管理员用户名
+            </label>
+            <Input
+              id="registerUsername"
+              type="text"
+              value={registerUsername}
+              onChange={(e) => setRegisterUsername(e.target.value)}
+              placeholder="创建企业管理员账号"
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="registerEmail" className="block text-sm font-medium text-slate-700">
+              管理员邮箱
+            </label>
+            <Input
+              id="registerEmail"
+              type="email"
+              value={registerEmail}
+              onChange={(e) => setRegisterEmail(e.target.value)}
+              placeholder="admin@company.com"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="registerPassword" className="block text-sm font-medium text-slate-700">
+              管理员密码
+            </label>
+            <Input
+              id="registerPassword"
+              type="password"
+              value={registerPassword}
+              onChange={(e) => setRegisterPassword(e.target.value)}
+              placeholder="至少 6 位"
+              minLength={6}
+              disabled={loading}
+              required
+            />
+          </div>
+
+          {error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? '创建中...' : '创建企业并进入后台'}
+          </Button>
+        </form>
       )}
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 font-medium"
-      >
-        {loading ? (
-          <span className="flex items-center justify-center">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            登录中...
-          </span>
-        ) : '登录'}
-      </button>
-    </form>
-  );
+    </div>
+  )
 }

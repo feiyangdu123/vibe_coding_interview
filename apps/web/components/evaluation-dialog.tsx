@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { apiFetch } from '@/lib/api'
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 interface EvaluationDimension {
@@ -44,8 +45,7 @@ export function EvaluationDialog({ open, onOpenChange, interviewId }: Evaluation
     setLoading(true)
     setError(null)
 
-    fetch(`http://localhost:3001/api/admin/interviews/${interviewId}/evaluation`)
-      .then(res => res.json())
+    apiFetch(`/api/admin/interviews/${interviewId}/evaluation`)
       .then(data => {
         console.log('[Evaluation Dialog] Received data:', data)
         console.log('[Evaluation Dialog] aiEvaluationDetails:', data.aiEvaluationDetails)
@@ -58,7 +58,7 @@ export function EvaluationDialog({ open, onOpenChange, interviewId }: Evaluation
       })
       .catch(err => {
         console.error('Failed to fetch evaluation:', err)
-        setError('加载评估结果失败')
+        setError(err instanceof Error ? err.message : '加载评估结果失败')
       })
       .finally(() => {
         setLoading(false)
@@ -204,4 +204,3 @@ export function EvaluationDialog({ open, onOpenChange, interviewId }: Evaluation
     </Dialog>
   )
 }
-

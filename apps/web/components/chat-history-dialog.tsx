@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ChatMessage } from './chat-message'
+import { apiFetch } from '@/lib/api'
 import { Loader2, AlertCircle } from 'lucide-react'
 
 interface ChatPart {
@@ -43,8 +44,7 @@ export function ChatHistoryDialog({ open, onOpenChange, interviewId }: ChatHisto
     setLoading(true)
     setError(null)
 
-    fetch(`http://localhost:3001/api/admin/interviews/${interviewId}/chat-history`)
-      .then(res => res.json())
+    apiFetch(`/api/admin/interviews/${interviewId}/chat-history`)
       .then(data => {
         if (data.error) {
           setError(data.error)
@@ -56,7 +56,7 @@ export function ChatHistoryDialog({ open, onOpenChange, interviewId }: ChatHisto
       })
       .catch(err => {
         console.error('Failed to fetch chat history:', err)
-        setError('加载聊天记录失败')
+        setError(err instanceof Error ? err.message : '加载聊天记录失败')
       })
       .finally(() => {
         setLoading(false)

@@ -1,10 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { PageHeader } from '@/components/admin/page-header'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog } from '@/components/ui/alert-dialog'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from 'sonner'
+import { apiFetch } from '@/lib/api'
 
 interface ProcessStatus {
   interviewId: string
@@ -34,8 +39,7 @@ export default function ProcessesPage() {
 
   const loadProcesses = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/admin/processes')
-      const data = await res.json()
+      const data = await apiFetch('/api/admin/processes')
       if (data.processes) {
         setProcesses(data.processes)
       } else {
@@ -71,16 +75,11 @@ export default function ProcessesPage() {
     if (!stoppingProcessId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/processes/${stoppingProcessId}/stop`, {
+      await apiFetch(`/api/admin/processes/${stoppingProcessId}/stop`, {
         method: 'POST'
       })
-
-      if (res.ok) {
-        toast.success('进程已停止')
-        loadProcesses()
-      } else {
-        toast.error('停止失败')
-      }
+      toast.success('进程已停止')
+      loadProcesses()
     } catch (err) {
       console.error(err)
       toast.error('停止失败')
@@ -92,17 +91,11 @@ export default function ProcessesPage() {
 
   const handleHealthCheck = async (interviewId: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/processes/${interviewId}/health-check`, {
+      const data = await apiFetch(`/api/admin/processes/${interviewId}/health-check`, {
         method: 'POST'
       })
-
-      if (res.ok) {
-        const data = await res.json()
-        toast.success(data.healthy ? '健康检查通过' : '健康检查失败')
-        loadProcesses()
-      } else {
-        toast.error('健康检查失败')
-      }
+      toast.success(data.healthy ? '健康检查通过' : '健康检查失败')
+      loadProcesses()
     } catch (err) {
       console.error(err)
       toast.error('健康检查失败')
@@ -114,19 +107,20 @@ export default function ProcessesPage() {
     setDetailsOpen(true)
   }
 
-  const getHealthBadge = (healthStatus: string, status: string) => {
+  const getRuntimeStatus = (healthStatus: string, status: string) => {
     if (status === 'crashed') {
-      return <span className="text-2xl" title="崩溃">💥</span>
+      return <Badge variant="error">异常崩溃</Badge>
     }
 
-    switch (healthStatus) {
-      case 'healthy':
-        return <span className="text-2xl" title="健康">🟢</span>
-      case 'unhealthy':
-        return <span className="text-2xl" title="不健康">🔴</span>
-      default:
-        return <span className="text-2xl" title="未知">⚪</span>
+    if (healthStatus === 'healthy') {
+      return <Badge variant="success">运行正常</Badge>
     }
+
+    if (healthStatus === 'unhealthy') {
+      return <Badge variant="error">健康异常</Badge>
+    }
+
+    return <Badge variant="warning">状态未知</Badge>
   }
 
   const getRemainingTime = (endTime: string | null) => {
@@ -142,100 +136,127 @@ export default function ProcessesPage() {
     return `${minutes} 分钟`
   }
 
-  if (loading) return <div>加载中...</div>
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-gray-500">加载中...</div>
+    </div>
+  )
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">进程管理</h1>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="rounded"
-            />
-            <span className="text-sm">自动刷新 (10秒)</span>
-          </label>
-          <Button onClick={loadProcesses} variant="outline">
-            刷新
-          </Button>
-        </div>
-      </div>
+    <div className="console-page">
+      <PageHeader
+        meta="Runtime Operations"
+        title="进程管理"
+        description="监控面试 Runtime 的运行状态、健康检查结果与剩余时长，必要时可人工停止。"
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>自动刷新</span>
+            </label>
+            <Button onClick={loadProcesses} variant="outline">
+              刷新
+            </Button>
+          </div>
+        }
+      />
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full">
-          <thead className="border-b">
-            <tr>
-              <th className="text-left p-4">面试ID</th>
-              <th className="text-left p-4">候选人</th>
-              <th className="text-left p-4">题目</th>
-              <th className="text-left p-4">端口</th>
-              <th className="text-left p-4">进程ID</th>
-              <th className="text-left p-4">健康状态</th>
-              <th className="text-left p-4">开始时间</th>
-              <th className="text-left p-4">剩余时间</th>
-              <th className="text-left p-4">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {processes.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="p-4 text-center text-gray-500">
-                  暂无运行中的进程
-                </td>
-              </tr>
-            ) : (
-              processes.map(process => (
-                <tr key={process.interviewId} className="border-b hover:bg-gray-50">
-                  <td className="p-4 font-mono text-xs">
-                    {process.interviewId.substring(0, 8)}...
-                  </td>
-                  <td className="p-4">{process.candidateName}</td>
-                  <td className="p-4">{process.problemTitle}</td>
-                  <td className="p-4">{process.port || '-'}</td>
-                  <td className="p-4">{process.processId || '-'}</td>
-                  <td className="p-4">
-                    {getHealthBadge(process.healthStatus, process.status)}
-                  </td>
-                  <td className="p-4 text-sm">
-                    {process.startTime
-                      ? new Date(process.startTime).toLocaleString('zh-CN')
-                      : '-'}
-                  </td>
-                  <td className="p-4 text-sm">
-                    {getRemainingTime(process.endTime)}
-                  </td>
-                  <td className="p-4 space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleHealthCheck(process.interviewId)}
-                    >
-                      检查
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => showDetails(process)}
-                    >
-                      详情
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleStop(process.interviewId)}
-                    >
-                      停止
-                    </Button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Card>
+        <CardContent className="pt-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm text-slate-500">
+              当前每 10 秒自动轮询一次运行状态，可在异常场景下进入详情查看工作目录与错误信息。
+            </div>
+            <Badge variant="outline">{processes.length} 个实例</Badge>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>面试标识</TableHead>
+                <TableHead>候选人</TableHead>
+                <TableHead>题目</TableHead>
+                <TableHead>运行状态</TableHead>
+                <TableHead>端口 / 进程</TableHead>
+                <TableHead>开始时间</TableHead>
+                <TableHead>剩余时间</TableHead>
+                <TableHead>数据一致性</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {processes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                    暂无运行中的进程
+                  </TableCell>
+                </TableRow>
+              ) : (
+                processes.map((process) => (
+                  <TableRow key={process.interviewId}>
+                    <TableCell className="font-mono text-xs text-slate-600">
+                      {process.interviewId.substring(0, 8)}...
+                    </TableCell>
+                    <TableCell>{process.candidateName}</TableCell>
+                    <TableCell>{process.problemTitle}</TableCell>
+                    <TableCell>{getRuntimeStatus(process.healthStatus, process.status)}</TableCell>
+                    <TableCell>
+                      <div className="text-sm text-slate-700">Port {process.port || '-'}</div>
+                      <div className="text-xs text-slate-500">PID {process.processId || '-'}</div>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {process.startTime
+                        ? new Date(process.startTime).toLocaleString('zh-CN')
+                        : '-'}
+                    </TableCell>
+                    <TableCell className="text-sm">{getRemainingTime(process.endTime)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={process.inMemory ? 'success' : 'warning'}>
+                          {process.inMemory ? '内存已登记' : '内存缺失'}
+                        </Badge>
+                        <Badge variant={process.inDatabase ? 'info' : 'warning'}>
+                          {process.inDatabase ? '数据库已登记' : '数据库缺失'}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleHealthCheck(process.interviewId)}
+                        >
+                          检查
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => showDetails(process)}
+                        >
+                          详情
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleStop(process.interviewId)}
+                        >
+                          停止
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* Details Dialog */}
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>

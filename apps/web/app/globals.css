@@ -4,26 +4,29 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --font-sans: "SF Pro Text", "SF Pro Display", "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+    --background: 220 23% 97%;
+    --foreground: 222 30% 14%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 30% 14%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --popover-foreground: 222 30% 14%;
+    --primary: 214 100% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 18% 96%;
+    --secondary-foreground: 222 24% 18%;
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 14% 42%;
+    --accent: 210 20% 96%;
+    --accent-foreground: 222 24% 18%;
+    --destructive: 0 73% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 24% 88%;
+    --input: 214 24% 88%;
+    --ring: 214 100% 52%;
+    --radius: 0.625rem;
   }
 }
 
@@ -31,7 +34,63 @@
   * {
     @apply border-border;
   }
+  html {
+    @apply h-full scroll-smooth;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply min-h-full bg-background text-foreground;
+    font-family: var(--font-sans), sans-serif;
+    font-feature-settings: "liga" 1, "calt" 1;
+  }
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono), monospace !important;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer base {
+  ::selection {
+    background: rgba(22, 119, 255, 0.16);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: rgba(100, 116, 139, 0.28);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .console-page {
+    @apply space-y-6;
+  }
+
+  .console-panel {
+    @apply rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)];
+  }
+
+  .console-muted-panel {
+    @apply rounded-xl border border-border bg-slate-50/70;
+  }
+
+  .console-kicker {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500;
   }
 }

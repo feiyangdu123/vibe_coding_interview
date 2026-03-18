@@ -1,6 +1,26 @@
-import type { UserRole, ProblemVisibility, ProblemType, InterviewStatus, EndReason } from '@vibe/database';
+import type {
+  UserRole,
+  ProblemVisibility,
+  ProblemType,
+  InterviewStatus,
+  EndReason,
+  InterviewEventType,
+  InterviewQuotaState,
+  InterviewQuotaLedgerAction,
+  InterviewQuotaLedgerReason
+} from '@vibe/database';
 
-export type { UserRole, ProblemVisibility, ProblemType, InterviewStatus, EndReason };
+export type {
+  UserRole,
+  ProblemVisibility,
+  ProblemType,
+  InterviewStatus,
+  EndReason,
+  InterviewEventType,
+  InterviewQuotaState,
+  InterviewQuotaLedgerAction,
+  InterviewQuotaLedgerReason
+};
 
 export interface PaginationMeta {
   page: number;
@@ -20,11 +40,11 @@ export interface LoginDto {
 }
 
 export interface RegisterDto {
+  organizationName: string;
+  organizationSlug?: string;
   username: string;
   password: string;
   email?: string;
-  role: UserRole;
-  organizationId: string;
 }
 
 export interface AuthResponse {
@@ -39,6 +59,50 @@ export interface SessionUser {
   role: UserRole;
   organizationId: string;
   organizationName?: string;
+  organizationSlug?: string;
+}
+
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  username: string;
+  email?: string;
+  role: UserRole;
+  createdAt?: string;
+}
+
+export interface CreateOrganizationUserDto {
+  username: string;
+  password: string;
+  email?: string;
+  role: UserRole;
+}
+
+export interface OrganizationApiKeyConfigSummary {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKeyMasked: string;
+  isSelected: boolean;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export interface CreateOrganizationApiKeyConfigDto {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+export interface UpdateOrganizationApiKeyConfigDto {
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
 }
 
 export interface CreateProblemDto {
@@ -66,10 +130,38 @@ export interface CreateCandidateDto {
   phone?: string;
 }
 
-export interface CreateInterviewDto {
-  candidateId: string;
-  problemId: string;
+export interface ProblemTemplateResponse {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  requirements: string;
   duration: number;
+  problemType: ProblemType;
+  roleTrack?: string;
+  difficulty?: string;
+  language?: string;
+  tags?: string[];
+  evaluationInstructionsText?: string;
+  acceptanceCriteria?: any;
+  workDirTemplate: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateInterviewDto {
+  positionName?: string;
+  interviewerId?: string;
+  problemId: string;
+  scheduledStartAt: string;
+  duration: number;
+  candidateId?: string;
+  newCandidate?: {
+    name: string;
+    email: string;
+    phone?: string;
+  };
 }
 
 export interface SubmitManualReviewDto {
@@ -78,12 +170,19 @@ export interface SubmitManualReviewDto {
   manualReviewConclusion: string;
 }
 
+export interface SubmitReviewDecisionDto {
+  decision: 'pass' | 'fail' | 'pending';
+  notes?: string;
+  score?: number;
+}
+
 export interface InterviewResponse {
   id: string;
   token: string;
   status: InterviewStatus;
   startTime?: Date;
   endTime?: Date;
+  submittedAt?: Date;
   port?: number;
   candidate: {
     name: string;
@@ -95,6 +194,90 @@ export interface InterviewResponse {
     requirements: string;
     scoringCriteria: any;
   };
+}
+
+export interface InterviewEventResponse {
+  id: string;
+  interviewId: string;
+  eventType: InterviewEventType;
+  metadata?: any;
+  createdAt: Date;
+}
+
+export interface InterviewDraft {
+  id: string;
+  organizationId: string;
+  createdById: string;
+  positionName?: string;
+  interviewerId?: string;
+  problemId?: string;
+  scheduledStartAt?: string;
+  duration?: number;
+  candidateMode?: 'existing' | 'new' | 'bulk';
+  candidateId?: string;
+  candidateIds?: string[];
+  newCandidateName?: string;
+  newCandidateEmail?: string;
+  newCandidatePhone?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BatchCreateInterviewDto {
+  positionName?: string;
+  interviewerId?: string;
+  problemId: string;
+  scheduledStartAt: string;
+  duration: number;
+  candidates: Array<{
+    name: string;
+    email: string;
+    phone?: string;
+  }>;
+}
+
+export interface InterviewQuotaSummary {
+  totalGranted: number;
+  reservedCount: number;
+  consumedCount: number;
+  availableCount: number;
+}
+
+export interface InterviewQuotaLedgerEntry {
+  id: string;
+  action: InterviewQuotaLedgerAction;
+  reason: InterviewQuotaLedgerReason;
+  deltaTotal: number;
+  deltaReserved: number;
+  deltaConsumed: number;
+  totalAfter: number;
+  reservedAfter: number;
+  consumedAfter: number;
+  availableAfter: number;
+  createdAt: string;
+  createdBy?: {
+    id: string;
+    username: string;
+  } | null;
+  interview?: {
+    id: string;
+    token: string;
+    status: InterviewStatus;
+    quotaState?: InterviewQuotaState | null;
+    scheduledStartAt?: string | null;
+    candidate?: {
+      name: string;
+      email: string;
+    };
+    interviewer?: {
+      username: string;
+    } | null;
+  } | null;
+}
+
+export interface TriggerEvaluationResponse {
+  message: string;
+  status?: string;
 }
 
 export * from './validation';

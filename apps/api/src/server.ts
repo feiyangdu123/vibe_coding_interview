@@ -7,10 +7,15 @@ config({ path: resolve(__dirname, '../../../.env') });
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import { authRoutes } from './routes/auth';
 import { problemRoutes } from './routes/admin/problems';
 import { candidateRoutes } from './routes/admin/candidates';
 import { interviewRoutes } from './routes/admin/interviews';
+import { interviewDraftRoutes } from './routes/admin/interview-drafts';
+import { interviewQuotaRoutes } from './routes/admin/interview-quota';
+import { userRoutes } from './routes/admin/users';
+import { organizationApiKeyRoutes } from './routes/admin/api-keys';
 import processesRoutes from './routes/admin/processes';
 import { interviewPublicRoutes } from './routes/interview';
 import { startCleanupJob } from './services/cleanup-service';
@@ -25,11 +30,14 @@ async function start() {
   await migrateExpiredStatus();
 
   await fastify.register(cors, {
-    origin: 'http://localhost:3000',
-    credentials: true
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
   });
 
   await fastify.register(cookie);
+  await fastify.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } });
 
   // Health check
   fastify.get('/', async () => {
@@ -48,6 +56,10 @@ async function start() {
   await fastify.register(problemRoutes);
   await fastify.register(candidateRoutes);
   await fastify.register(interviewRoutes);
+  await fastify.register(interviewDraftRoutes);
+  await fastify.register(interviewQuotaRoutes);
+  await fastify.register(userRoutes);
+  await fastify.register(organizationApiKeyRoutes);
   await fastify.register(processesRoutes);
   await fastify.register(interviewPublicRoutes);
 

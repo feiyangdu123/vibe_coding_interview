@@ -38,17 +38,81 @@ enum EndReason {
   CANDIDATE_SUBMIT
   INTERVIEWER_STOP
   SYSTEM_ERROR
+  CANCELLED_BY_ORG
+  CANDIDATE_NO_SHOW
+}
+
+enum InterviewEventType {
+  STARTED
+  WORKSPACE_OPENED
+  HEARTBEAT
+  SUBMITTED
+  TIMEOUT
+  INTERVIEWER_ENDED
+  SYSTEM_ERROR
+  CANCELLED
+  NO_SHOW
+  AI_EVALUATION_STARTED
+  AI_EVALUATION_FINISHED
+}
+
+enum InterviewQuotaState {
+  RESERVED
+  CONSUMED
+  RELEASED
+}
+
+enum InterviewQuotaLedgerAction {
+  GRANT
+  RESERVE
+  CONSUME
+  RELEASE
+  ADJUST
+}
+
+enum InterviewQuotaLedgerReason {
+  ORGANIZATION_CREATED
+  INTERVIEW_CREATED
+  INTERVIEW_COMPLETED
+  INTERVIEW_CANCELLED
+  CANDIDATE_NO_SHOW
+  SYSTEM_VOID
+  MANUAL_ADJUSTMENT
+  MIGRATION_BACKFILL
 }
 
 model Organization {
   id        String   @id @default(uuid())
   name      String
+  slug      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users      User[]
-  problems   Problem[]
-  interviews Interview[]
+  users           User[]
+  candidates      Candidate[]
+  problems        Problem[]
+  interviews      Interview[]
+  interviewDrafts InterviewDraft[]
+  apiKeyConfigs   OrganizationApiKeyConfig[]
+  interviewQuota  OrganizationInterviewQuota?
+}
+
+model OrganizationApiKeyConfig {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  baseUrl        String
+  apiKey         String   @db.Text
+  isSelected     Boolean  @default(false)
+  lastUsedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, isSelected])
+  @@index([lastUsedAt])
 }
 
 model User {
@@ -65,6 +129,8 @@ model User {
   createdProblems     Problem[]     @relation("ProblemCreator")
   conductedInterviews Interview[]   @relation("InterviewInterviewer")
   sessions            AuthSession[]
+  interviewDrafts     InterviewDraft[]
+  quotaLedgerEntries  InterviewQuotaLedger[] @relation("QuotaLedgerActor")
 
   @@index([organizationId])
   @@index([username])
@@ -117,13 +183,42 @@ model Problem {
   @@index([problemType])
 }
 
+model ProblemTemplate {
+  id                         String      @id @default(uuid())
+  slug                       String      @unique
+  title                      String
+  description                String      @db.Text
+  requirements               String      @db.Text
+  scoringCriteria            Json
+  workDirTemplate            String
+  duration                   Int
+  problemType                ProblemType @default(CODING)
+  roleTrack                  String?
+  difficulty                 String?
+  language                   String?
+  tags                       String[]    @default([])
+  evaluationInstructionsText String?     @db.Text
+  acceptanceCriteria         Json?
+  isActive                   Boolean     @default(true)
+  createdAt                  DateTime    @default(now())
+  updatedAt                  DateTime    @updatedAt
+
+  @@index([isActive])
+  @@index([problemType])
+}
+
 model Candidate {
-  id         String      @id @default(uuid())
-  name       String
-  email      String      @unique
-  phone      String?
-  createdAt  DateTime    @default(now())
-  interviews Interview[]
+  id             String      @id @default(uuid())
+  organizationId String
+  name           String
+  email          String
+  phone          String?
+  createdAt      DateTime    @default(now())
+  interviews     Interview[]
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
 }
 
 model Interview {
@@ -131,8 +226,13 @@ model Interview {
   candidateId     String
   problemId       String
   token           String           @unique
+  scheduledStartAt DateTime?
+  joinWindowOpensAt DateTime?
+  joinDeadlineAt  DateTime?
   startTime       DateTime?
   endTime         DateTime?
+  cancelledAt     DateTime?
+  submittedAt     DateTime?
   duration        Int
   status          InterviewStatus  @default(PENDING)
   workDir         String?
@@ -148,6 +248,9 @@ model Interview {
   organizationId String
   interviewerId  String?
   endReason      EndReason?
+  quotaState     InterviewQuotaState?
+  quotaReservedAt DateTime?
+  quotaSettledAt DateTime?
 
   // 快照字段
   candidateSnapshot          Json?
@@ -171,14 +274,143 @@ model Interview {
   manualReviewedAt       DateTime?
   manualReviewedBy       String?
 
-  candidate    Candidate    @relation(fields: [candidateId], references: [id])
-  problem      Problem      @relation(fields: [problemId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  interviewer  User?        @relation("InterviewInterviewer", fields: [interviewerId], references: [id])
+  // Phase 4: 新增字段
+  currentAiRunId String? // 当前生效的评估版本 ID
+  finalDecision  String? // 'pass' | 'fail' | 'pending'
+
+  // AI 聊天镜像字段
+  aiChatMirrorSourceSessionId     String?
+  aiChatMirrorSessionId           String?
+  aiChatMirrorLastCandidateMessageAt DateTime?
+  aiChatMirrorLastUsedAt          DateTime?
+
+  candidate       Candidate          @relation(fields: [candidateId], references: [id])
+  problem         Problem            @relation(fields: [problemId], references: [id])
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  interviewer     User?              @relation("InterviewInterviewer", fields: [interviewerId], references: [id])
+  events          InterviewEvent[]
+  aiEvaluationRuns AiEvaluationRun[]
+  aiChatMessages  AiChatMessage[]
+  quotaLedgerEntries InterviewQuotaLedger[]
 
   @@index([token])
   @@index([status])
   @@index([organizationId])
   @@index([interviewerId])
+  @@index([scheduledStartAt])
+  @@index([joinDeadlineAt])
+  @@index([quotaState])
   @@index([manualReviewStatus])
+  @@index([aiChatMirrorLastUsedAt])
+}
+
+model InterviewEvent {
+  id          String             @id @default(uuid())
+  interviewId String
+  eventType   InterviewEventType
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@index([createdAt])
+}
+
+model AiEvaluationRun {
+  id          String    @id @default(uuid())
+  interviewId String
+  version     Int       // 版本号，从 1 开始递增
+  status      String    // 'running' | 'completed' | 'failed' | 'timeout'
+  score       Float?    // 总分 0-10
+  details     Json?     // { dimensions: [...], summary: "..." }
+  rawOutput   String?   @db.Text
+  error       String?   @db.Text
+  triggeredBy String?   // 触发人 userId（自动触发为 null）
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  retries     Int       @default(0)
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, version])
+  @@index([interviewId, version])
+}
+
+model InterviewDraft {
+  id             String   @id @default(uuid())
+  organizationId String
+  createdById    String
+
+  // 表单字段
+  positionName      String?
+  interviewerId     String?
+  problemId         String?
+  scheduledStartAt  DateTime?
+  duration          Int?
+  candidateMode     String? // 'existing' | 'new'
+  candidateId       String?
+  newCandidateName  String?
+  newCandidateEmail String?
+  newCandidatePhone String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, createdById])
+  @@index([createdById])
+}
+
+model AiChatMessage {
+  id          String   @id @default(uuid())
+  interviewId String
+  role        String   // 'user' | 'assistant'
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId, createdAt])
+}
+
+model OrganizationInterviewQuota {
+  id            String   @id @default(uuid())
+  organizationId String  @unique
+  totalGranted  Int      @default(500)
+  reservedCount Int      @default(0)
+  consumedCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledgerEntries InterviewQuotaLedger[]
+}
+
+model InterviewQuotaLedger {
+  id                 String                    @id @default(uuid())
+  organizationQuotaId String
+  interviewId        String?
+  createdById        String?
+  action             InterviewQuotaLedgerAction
+  reason             InterviewQuotaLedgerReason
+  deltaTotal         Int                       @default(0)
+  deltaReserved      Int                       @default(0)
+  deltaConsumed      Int                       @default(0)
+  totalAfter         Int
+  reservedAfter      Int
+  consumedAfter      Int
+  availableAfter     Int
+  metadata           Json?
+  createdAt          DateTime                  @default(now())
+
+  organizationQuota OrganizationInterviewQuota @relation(fields: [organizationQuotaId], references: [id], onDelete: Cascade)
+  interview         Interview?                 @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+  createdBy         User?                      @relation("QuotaLedgerActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationQuotaId, createdAt])
+  @@index([interviewId])
+  @@index([createdById])
 }

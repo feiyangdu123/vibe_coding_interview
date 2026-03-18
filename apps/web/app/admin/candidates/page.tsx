@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { AlertDialog } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
+import { PageHeader } from '@/components/admin/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Pagination } from '@/components/ui/pagination'
@@ -15,7 +16,7 @@ import { toast } from 'sonner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { candidateSchema, type CandidateFormData } from '@vibe/shared-types'
 import type { PaginationMeta } from '@vibe/shared-types'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, downloadFile } from '@/lib/api'
 
 interface Candidate {
   id: string
@@ -33,6 +34,15 @@ export default function CandidatesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{
+    success: number
+    skipped: number
+    failed: number
+    errors?: { row: number; reason: string }[]
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Pagination and search state
   const [page, setPage] = useState(1)
@@ -153,17 +163,78 @@ export default function CandidatesPage() {
     }
   }
 
-  if (loading) return <div>加载中...</div>
+  const handleDownloadTemplate = async () => {
+    try {
+      await downloadFile('/api/admin/candidates/import-template')
+    } catch {
+      toast.error('下载模板失败')
+    }
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setImporting(true)
+    setImportResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('http://localhost:3001/api/admin/candidates/batch', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      })
+
+      const result = await res.json()
+
+      if (!res.ok) {
+        toast.error(result.error || '导入失败')
+        return
+      }
+
+      setImportResult(result)
+
+      if (result.success > 0) {
+        toast.success(`成功导入 ${result.success} 位候选人`)
+        loadCandidates()
+      }
+    } catch {
+      toast.error('导入失败，请检查文件格式')
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-gray-500">加载中...</div>
+    </div>
+  )
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">候选人管理</h1>
-        <Button onClick={handleCreate}>新建候选人</Button>
-      </div>
+    <div className="console-page">
+      <PageHeader
+        meta="Candidate Directory"
+        title="候选人管理"
+        description="集中维护候选人基本信息、联系方式与后续面试复用档案。"
+        actions={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { setImportResult(null); setImportDialogOpen(true) }}>
+              批量导入
+            </Button>
+            <Button onClick={handleCreate}>新建候选人</Button>
+          </div>
+        }
+      />
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-5">
           <div className="mb-4">
             <Input
               placeholder="搜索候选人姓名或邮箱..."
@@ -304,7 +375,64 @@ export default function CandidatesPage() {
         confirmText="删除"
         variant="destructive"
       />
+
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量导入候选人</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-3">
+                请先下载 Excel 模板，按模板格式填写候选人信息后上传。
+              </p>
+              <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+                下载导入模板
+              </Button>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium mb-2">上传 Excel 文件</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleImportFile}
+                disabled={importing}
+                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-50"
+              />
+              {importing && <p className="text-sm text-muted-foreground mt-2">导入中...</p>}
+            </div>
+
+            {importResult && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-medium">导入结果</p>
+                <div className="flex gap-4 text-sm">
+                  <span className="text-green-600">成功: {importResult.success}</span>
+                  <span className="text-yellow-600">跳过（重复）: {importResult.skipped}</span>
+                  <span className="text-red-600">失败: {importResult.failed}</span>
+                </div>
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-slate-50 p-3">
+                    {importResult.errors.map((err, i) => (
+                      <p key={i} className="text-xs text-red-600">
+                        第 {err.row} 行: {err.reason}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-

@@ -1,21 +1,31 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, InterviewStatus } from '@vibe/database';
-import { createInterview } from '../../services/interview-service';
+import {
+  createInterview,
+  createBatchInterviews,
+  endInterviewByInterviewer,
+  getInterviewEvents,
+  cancelPendingInterview
+} from '../../services/interview-service';
 import { getChatHistory } from '../../services/chat-history-service';
-import { evaluateInterview } from '../../services/ai-evaluation-service';
-import type { CreateInterviewDto, SubmitManualReviewDto } from '@vibe/shared-types';
+import { evaluateInterview, getEvaluationHistory, getEvaluationRun } from '../../services/ai-evaluation-service';
+import { exportInterviewsToExcel } from '../../services/interview-export-service';
+import type { CreateInterviewDto, SubmitManualReviewDto, SubmitReviewDecisionDto, BatchCreateInterviewDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
 import { authMiddleware } from '../../middleware/auth';
 
 export async function interviewRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
 
-  fastify.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string } }>(
+  fastify.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string; aiStatus?: string; reviewStatus?: string; decision?: string } }>(
     '/api/admin/interviews',
     async (request) => {
       const { page, limit } = parsePaginationParams(request.query);
       const search = request.query.search?.trim() || '';
       const status = request.query.status?.trim() || 'all';
+      const aiStatus = request.query.aiStatus?.trim() || '';
+      const reviewStatus = request.query.reviewStatus?.trim() || '';
+      const decision = request.query.decision?.trim() || '';
 
       const where: any = {
         organizationId: request.user!.organizationId
@@ -23,7 +33,22 @@ export async function interviewRoutes(fastify: FastifyInstance) {
 
       // Status filter
       if (status && status !== 'all') {
-        where.status = status as InterviewStatus;
+        where.status = status.toUpperCase() as InterviewStatus;
+      }
+
+      // AI evaluation status filter
+      if (aiStatus) {
+        where.aiEvaluationStatus = aiStatus;
+      }
+
+      // Manual review status filter
+      if (reviewStatus) {
+        where.manualReviewStatus = reviewStatus;
+      }
+
+      // Final decision filter
+      if (decision) {
+        where.finalDecision = decision;
       }
 
       // Search filter
@@ -58,8 +83,11 @@ export async function interviewRoutes(fastify: FastifyInstance) {
   );
 
   fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request, reply) => {
-    const interview = await prisma.interview.findUnique({
-      where: { id: request.params.id },
+    const interview = await prisma.interview.findFirst({
+      where: {
+        id: request.params.id,
+        organizationId: request.user!.organizationId
+      },
       include: {
         candidate: true,
         problem: true,
@@ -67,7 +95,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       }
     });
 
-    if (!interview || interview.organizationId !== request.user!.organizationId) {
+    if (!interview) {
       reply.code(404).send({ error: 'Interview not found' });
       return;
     }
@@ -75,52 +103,122 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     return interview;
   });
 
-  fastify.post<{ Body: CreateInterviewDto }>('/api/admin/interviews', async (request) => {
-    return await createInterview(
-      request.body,
-      request.user!.organizationId,
-      request.user!.id
-    );
+  fastify.post<{ Body: CreateInterviewDto }>('/api/admin/interviews', async (request, reply) => {
+    try {
+      return await createInterview(
+        request.body,
+        request.user!.organizationId,
+        request.user!.id
+      );
+    } catch (error) {
+      console.error('Create interview error:', error);
+      reply.code(400).send({
+        error: error instanceof Error ? error.message : 'Failed to create interview'
+      });
+    }
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request, reply) => {
-    const { id } = request.params;
-
     try {
-      const interview = await prisma.interview.findUnique({
-        where: { id }
-      });
+      const interview = await cancelPendingInterview(
+        request.params.id,
+        request.user!.organizationId,
+        request.user!.id
+      );
 
-      if (!interview || interview.organizationId !== request.user!.organizationId) {
-        reply.code(404).send({ error: 'Interview not found' });
-        return;
-      }
-
-      // If interview is in progress, stop the OpenCode instance
-      if (interview.status === InterviewStatus.IN_PROGRESS && interview.processId) {
-        try {
-          process.kill(interview.processId);
-        } catch (error) {
-          console.error('Failed to kill OpenCode process:', error);
-        }
-      }
-
-      // Delete the interview
-      await prisma.interview.delete({
-        where: { id }
-      });
-
-      return { success: true };
+      return { success: true, interview };
     } catch (error) {
-      console.error('Delete interview error:', error);
-      reply.code(500).send({ error: 'Failed to delete interview' });
+      console.error('Cancel interview error:', error);
+      reply.code(400).send({
+        error: error instanceof Error ? error.message : 'Failed to cancel interview'
+      });
+    }
+  });
+
+  fastify.post<{ Params: { id: string } }>('/api/admin/interviews/:id/cancel', async (request, reply) => {
+    try {
+      return await cancelPendingInterview(
+        request.params.id,
+        request.user!.organizationId,
+        request.user!.id
+      );
+    } catch (error) {
+      console.error('Cancel interview error:', error);
+      reply.code(400).send({
+        error: error instanceof Error ? error.message : 'Failed to cancel interview'
+      });
     }
   });
 
   fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id/chat-history', async (request, reply) => {
     const { id } = request.params;
+    console.log(`[Chat History API] Fetching for interview ${id}`);
+
+    const interview = await prisma.interview.findUnique({
+      where: { id },
+      select: { dataDir: true, organizationId: true }
+    });
+
+    if (!interview || interview.organizationId !== request.user!.organizationId) {
+      reply.code(404).send({ error: 'Interview not found' });
+      return;
+    }
+
+    console.log(`[Chat History API] dataDir: ${interview.dataDir}`);
+
     const history = await getChatHistory(id);
+
+    if (history.error) {
+      console.error(`[Chat History API] Error: ${history.error}`);
+      // Return 200 with error field instead of 500, so frontend can display the error message
+      return history;
+    }
+
+    console.log(`[Chat History API] Successfully fetched ${history.messages.length} messages`);
     return history;
+  });
+
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { page?: string; limit?: string };
+  }>('/api/admin/interviews/:id/events', async (request, reply) => {
+    const interview = await prisma.interview.findUnique({
+      where: { id: request.params.id },
+      select: { token: true, organizationId: true }
+    });
+
+    if (!interview || interview.organizationId !== request.user!.organizationId) {
+      reply.code(404).send({ error: 'Interview not found' });
+      return;
+    }
+
+    const page = parseInt(request.query.page || '1');
+    const limit = parseInt(request.query.limit || '50');
+    return await getInterviewEvents(interview.token, page, limit);
+  });
+
+  fastify.post<{ Params: { id: string } }>('/api/admin/interviews/:id/end', async (request, reply) => {
+    const interview = await prisma.interview.findUnique({
+      where: { id: request.params.id },
+      select: { token: true, organizationId: true, status: true }
+    });
+
+    if (!interview || interview.organizationId !== request.user!.organizationId) {
+      reply.code(404).send({ error: 'Interview not found' });
+      return;
+    }
+
+    if (interview.status !== InterviewStatus.IN_PROGRESS) {
+      reply.code(400).send({ error: 'Interview is not in progress' });
+      return;
+    }
+
+    try {
+      return await endInterviewByInterviewer(interview.token);
+    } catch (error) {
+      console.error('End interview error:', error);
+      reply.code(500).send({ error: 'Failed to end interview' });
+    }
   });
 
   // 获取评估结果
@@ -129,9 +227,13 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params;
 
-      const interview = await prisma.interview.findUnique({
-        where: { id },
+      const interview = await prisma.interview.findFirst({
+        where: {
+          id,
+          organizationId: request.user!.organizationId
+        },
         select: {
+          organizationId: true,
           aiEvaluationStatus: true,
           aiEvaluationScore: true,
           aiEvaluationDetails: true,
@@ -177,14 +279,17 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // 手动触发评估
+  // 手动触发评估（支持重跑）
   fastify.post<{ Params: { id: string } }>(
     '/api/admin/interviews/:id/evaluate',
     async (request, reply) => {
       const { id } = request.params;
 
-      const interview = await prisma.interview.findUnique({
-        where: { id }
+      const interview = await prisma.interview.findFirst({
+        where: {
+          id,
+          organizationId: request.user!.organizationId
+        }
       });
 
       if (!interview) {
@@ -197,11 +302,31 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      evaluateInterview(id).catch(err => {
+      if (interview.aiEvaluationStatus === 'running') {
+        reply.code(409).send({ error: 'AI evaluation is already running' });
+        return;
+      }
+
+      // 已复核面试：仅新增评估版本，不改变 manualReviewStatus
+      // 未复核面试：重置评估状态
+      if (interview.manualReviewStatus !== 'completed') {
+        await prisma.interview.update({
+          where: { id },
+          data: {
+            aiEvaluationStatus: 'pending',
+            manualReviewStatus: null
+          }
+        });
+      }
+
+      evaluateInterview(id, request.user!.id).catch(err => {
         console.error('Evaluation trigger failed:', err);
       });
 
-      return { message: 'Evaluation started' };
+      return {
+        message: 'Evaluation started',
+        status: 'running'
+      };
     }
   );
 
@@ -231,4 +356,133 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       });
     }
   );
+
+  // 获取评估历史（所有版本）
+  fastify.get<{ Params: { id: string } }>(
+    '/api/admin/interviews/:id/evaluation-history',
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const interview = await prisma.interview.findUnique({
+        where: { id },
+        select: { organizationId: true }
+      });
+
+      if (!interview || interview.organizationId !== request.user!.organizationId) {
+        reply.code(404).send({ error: 'Interview not found' });
+        return;
+      }
+
+      const history = await getEvaluationHistory(id);
+      return history;
+    }
+  );
+
+  // 获取指定评估版本的详细信息
+  fastify.get<{ Params: { id: string; runId: string } }>(
+    '/api/admin/interviews/:id/evaluation-runs/:runId',
+    async (request, reply) => {
+      const { id, runId } = request.params;
+
+      const interview = await prisma.interview.findUnique({
+        where: { id },
+        select: { organizationId: true }
+      });
+
+      if (!interview || interview.organizationId !== request.user!.organizationId) {
+        reply.code(404).send({ error: 'Interview not found' });
+        return;
+      }
+
+      const run = await getEvaluationRun(runId);
+
+      if (!run || run.interviewId !== id) {
+        reply.code(404).send({ error: 'Evaluation run not found' });
+        return;
+      }
+
+      return run;
+    }
+  );
+
+  // 提交最终复核结论
+  fastify.post<{ Params: { id: string }; Body: SubmitReviewDecisionDto }>(
+    '/api/admin/interviews/:id/review',
+    async (request, reply) => {
+      const { id } = request.params;
+      const { decision, notes, score } = request.body;
+
+      const interview = await prisma.interview.findUnique({
+        where: { id }
+      });
+
+      if (!interview || interview.organizationId !== request.user!.organizationId) {
+        reply.code(404).send({ error: 'Interview not found' });
+        return;
+      }
+
+      // 验证状态：只有 pending 或 null 的面试可以提交复核结论
+      if (interview.manualReviewStatus === 'completed') {
+        // 允许重新提交，但记录日志
+        console.log(`[Review] Re-submitting review for interview ${id}`);
+      }
+
+      return await prisma.interview.update({
+        where: { id },
+        data: {
+          manualReviewStatus: 'completed',
+          finalDecision: decision,
+          manualReviewScore: score,
+          manualReviewNotes: notes,
+          manualReviewedAt: new Date(),
+          manualReviewedBy: request.user!.id
+        }
+      });
+    }
+  );
+
+  // POST /api/admin/interviews/batch - 批量创建面试
+  fastify.post<{ Body: BatchCreateInterviewDto }>(
+    '/api/admin/interviews/batch',
+    async (request, reply) => {
+      try {
+        return await createBatchInterviews(
+          request.body,
+          request.user!.organizationId,
+          request.user!.id
+        );
+      } catch (error) {
+        console.error('Batch create interview error:', error);
+        reply.code(400).send({
+          error: error instanceof Error ? error.message : 'Failed to batch create interviews'
+        });
+      }
+    }
+  );
+
+  // GET /api/admin/interviews/export - 导出 Excel
+  fastify.get<{
+    Querystring: {
+      search?: string;
+      status?: string;
+      aiStatus?: string;
+      reviewStatus?: string;
+      decision?: string;
+    };
+  }>('/api/admin/interviews/export', async (request, reply) => {
+    const buffer = await exportInterviewsToExcel(request.user!.organizationId, {
+      search: request.query.search,
+      status: request.query.status as InterviewStatus,
+      aiStatus: request.query.aiStatus,
+      reviewStatus: request.query.reviewStatus,
+      decision: request.query.decision
+    });
+
+    const filename = `interviews_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    reply
+      .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(buffer);
+  });
 }

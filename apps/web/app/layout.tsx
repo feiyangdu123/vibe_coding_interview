@@ -14,9 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body className="font-sans antialiased">
         {children}
-        <Toaster position="bottom-right" duration={2000} />
+        <Toaster position="bottom-right" duration={2200} richColors closeButton />
       </body>
     </html>
   )

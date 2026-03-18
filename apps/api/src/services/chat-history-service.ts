@@ -4,88 +4,155 @@ import { prisma } from '@vibe/database';
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface ChatPart {
+export interface ChatPart {
   id: string;
   type: 'text' | 'tool' | 'file' | 'reasoning';
   content: string;
   metadata?: any;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   timestamp: number;
   parts: ChatPart[];
 }
 
-interface SessionInfo {
+export interface SessionInfo {
+  sessionId: string;
   title: string;
   directory: string;
+  lastMessageTimestamp?: number;
 }
 
-interface ChatHistoryResponse {
+export interface ChatHistoryResponse {
+  sessionId?: string;
+  lastMessageTimestamp?: number;
   messages: ChatMessage[];
   sessionInfo?: SessionInfo;
   error?: string;
 }
 
-export async function getChatHistory(interviewId: string): Promise<ChatHistoryResponse> {
+function getDatabasePath(dataDir: string): string {
+  return path.join(dataDir, 'opencode', 'opencode.db');
+}
+
+async function openReadonlyDatabase(dbPath: string) {
+  return open({
+    filename: dbPath,
+    driver: sqlite3.Database,
+    mode: sqlite3.OPEN_READONLY
+  });
+}
+
+interface CanonicalSessionRow {
+  id: string;
+  title: string;
+  directory: string;
+  time_updated: number;
+}
+
+interface MessageRow {
+  id: string;
+  session_id: string;
+  time_created: number;
+  data: string;
+}
+
+interface PartRow {
+  id: string;
+  message_id: string;
+  data: string;
+}
+
+async function getCanonicalSessionRow(db: Awaited<ReturnType<typeof openReadonlyDatabase>>): Promise<CanonicalSessionRow | null> {
+  const activeSession = await db.get<CanonicalSessionRow>(`
+    SELECT id, title, directory, time_updated
+    FROM session
+    WHERE time_archived IS NULL
+    ORDER BY time_updated DESC
+    LIMIT 1
+  `);
+
+  if (activeSession) {
+    return activeSession;
+  }
+
+  const latestSession = await db.get<CanonicalSessionRow>(`
+    SELECT id, title, directory, time_updated
+    FROM session
+    ORDER BY time_updated DESC
+    LIMIT 1
+  `);
+
+  return latestSession ?? null;
+}
+
+export async function getChatHistoryFromDataDir(dataDir: string): Promise<ChatHistoryResponse> {
   try {
-    // Get interview with dataDir
-    const interview = await prisma.interview.findUnique({
-      where: { id: interviewId }
-    });
-
-    if (!interview) {
-      return { messages: [], error: 'Interview not found' };
+    if (!fs.existsSync(dataDir)) {
+      console.error(`[Chat History] Data directory not found: ${dataDir}`);
+      return { messages: [], error: `Data directory not found: ${dataDir}` };
     }
 
-    if (!interview.dataDir) {
-      return { messages: [], error: 'No data directory found for this interview' };
-    }
+    const dbPath = getDatabasePath(dataDir);
 
-    // Construct database path
-    const dbPath = path.join(interview.dataDir, 'opencode', 'opencode.db');
-
-    // Check if database exists
     if (!fs.existsSync(dbPath)) {
-      return { messages: [], error: 'Chat database not found. Interview may not have started yet.' };
+      console.error(`[Chat History] Database file not found: ${dbPath}`);
+      return { messages: [], error: `Database file not found: ${dbPath}. Interview may not have started yet.` };
     }
-
-    // Open SQLite database
-    const db = await open({
-      filename: dbPath,
-      driver: sqlite3.Database,
-      mode: sqlite3.OPEN_READONLY
-    });
 
     try {
-      // Get session info
-      let sessionInfo: SessionInfo | undefined;
-      try {
-        const sessionRow = await db.get('SELECT * FROM session LIMIT 1');
-        if (sessionRow) {
-          sessionInfo = {
-            title: sessionRow.title || 'Interview Session',
-            directory: sessionRow.directory || ''
-          };
-        }
-      } catch (error) {
-        console.error('Failed to fetch session info:', error);
+      fs.accessSync(dbPath, fs.constants.R_OK);
+    } catch (err) {
+      console.error(`[Chat History] Database file not readable: ${dbPath}`, err);
+      return { messages: [], error: `Database file not readable: ${dbPath}. Permission denied.` };
+    }
+
+    console.log(`[Chat History] Opening database: ${dbPath}`);
+
+    const db = await openReadonlyDatabase(dbPath);
+
+    try {
+      // Check if the session table exists (OpenCode may still be initializing)
+      const tableCheck = await db.get<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='session'`
+      );
+      if (!tableCheck) {
+        return { messages: [], error: 'OpenCode is still initializing, chat history not yet available.' };
       }
 
-      // Get all messages
+      const sessionRow = await getCanonicalSessionRow(db);
+      if (!sessionRow) {
+        return { messages: [] };
+      }
+
       const messageRows = await db.all(`
         SELECT id, session_id, time_created, data
         FROM message
+        WHERE session_id = ?
         ORDER BY time_created ASC
-      `);
+      `, sessionRow.id) as MessageRow[];
+
+      const lastMessageTimestamp = messageRows.length > 0
+        ? messageRows[messageRows.length - 1]?.time_created
+        : undefined;
+      const sessionInfo: SessionInfo = {
+        sessionId: sessionRow.id,
+        title: sessionRow.title || 'Interview Session',
+        directory: sessionRow.directory || '',
+        lastMessageTimestamp
+      };
 
       if (messageRows.length === 0) {
-        return { messages: [], sessionInfo };
+        return {
+          sessionId: sessionRow.id,
+          lastMessageTimestamp,
+          messages: [],
+          sessionInfo
+        };
       }
 
-      // Get all parts for these messages
       const messageIds = messageRows.map(row => row.id);
       const placeholders = messageIds.map(() => '?').join(',');
       const partRows = await db.all(`
@@ -93,17 +160,15 @@ export async function getChatHistory(interviewId: string): Promise<ChatHistoryRe
         FROM part
         WHERE message_id IN (${placeholders})
         ORDER BY id ASC
-      `, ...messageIds);
+      `, ...messageIds) as PartRow[];
 
-      // Group parts by message
-      const partsByMessage = new Map<string, any[]>();
+      const partsByMessage = new Map<string, PartRow[]>();
       for (const partRow of partRows) {
         const parts = partsByMessage.get(partRow.message_id) || [];
         parts.push(partRow);
         partsByMessage.set(partRow.message_id, parts);
       }
 
-      // Convert to ChatMessage format
       const messages: ChatMessage[] = messageRows.map(messageRow => {
         const messageData = JSON.parse(messageRow.data);
         const messageParts = partsByMessage.get(messageRow.id) || [];
@@ -121,10 +186,35 @@ export async function getChatHistory(interviewId: string): Promise<ChatHistoryRe
         };
       });
 
-      return { messages, sessionInfo };
+      return {
+        sessionId: sessionRow.id,
+        lastMessageTimestamp,
+        messages,
+        sessionInfo
+      };
     } finally {
       await db.close();
     }
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    return { messages: [], error: 'Failed to fetch chat history' };
+  }
+}
+
+export async function getChatHistory(interviewId: string): Promise<ChatHistoryResponse> {
+  try {
+    const interview = await prisma.interview.findUnique({
+      where: { id: interviewId }
+    });
+
+    if (!interview) {
+      return { messages: [], error: 'Interview not found' };
+    }
+
+    if (!interview.dataDir) {
+      return { messages: [], error: 'No data directory found for this interview' };
+    }
+    return getChatHistoryFromDataDir(interview.dataDir);
   } catch (error) {
     console.error('Error fetching chat history:', error);
     return { messages: [], error: 'Failed to fetch chat history' };

@@ -11,7 +11,7 @@ const Dialog = ({ open, onOpenChange, children }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="fixed inset-0 bg-black/50"
+        className="fixed inset-0 bg-slate-900/24 backdrop-blur-[1px]"
         onClick={() => onOpenChange(false)}
       />
       <div className="relative z-50 w-full max-w-lg mx-4">
@@ -28,7 +28,7 @@ const DialogContent = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "bg-white rounded-lg shadow-lg p-6",
+      "max-h-[90vh] overflow-y-auto rounded-xl border border-border bg-white p-6 shadow-[0_24px_48px_rgba(15,23,42,0.16)]",
       className
     )}
     {...props}
@@ -43,7 +43,7 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex flex-col space-y-1.5 mb-4", className)}
+    className={cn("mb-4 flex flex-col space-y-1.5", className)}
     {...props}
   />
 )
@@ -55,7 +55,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h2
     ref={ref}
-    className={cn("text-lg font-semibold", className)}
+    className={cn("text-lg font-semibold tracking-[-0.02em] text-slate-950", className)}
     {...props}
   />
 ))
@@ -66,7 +66,7 @@ const DialogFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex justify-end space-x-2 mt-6", className)}
+    className={cn("mt-6 flex justify-end space-x-2", className)}
     {...props}
   />
 )
