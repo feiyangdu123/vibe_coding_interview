@@ -13,6 +13,7 @@ import type { CreateInterviewDto, BatchCreateInterviewDto } from '@vibe/shared-t
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 import { evaluateInterview } from './ai-evaluation-service';
 import {
   getInterviewScheduleWindow,
@@ -185,6 +186,17 @@ function prepareInterviewWorkspace(workDirTemplate: string, token: string) {
     : path.resolve(__dirname, '../../../../', workDirTemplate);
 
   copyDirectorySync(resolvedTemplate, interviewWorkDir);
+
+  // Initialize git repo so OpenCode recognizes this as a project
+  try {
+    execSync('git init && git add -A && git commit -m "Initial workspace"', {
+      cwd: interviewWorkDir,
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    console.warn(`Failed to initialize git repo in ${interviewWorkDir}:`, error instanceof Error ? error.message : error);
+  }
+
   return interviewWorkDir;
 }
 
