@@ -41,13 +41,11 @@ interface Candidate {
 
 interface Problem {
   id: string
-  slug?: string
   title: string
   description: string
   duration: number
   difficulty?: string
   problemType?: string
-  language?: string
 }
 
 function toDateTimeInputValue(value?: string | Date | null) {
@@ -547,9 +545,6 @@ export default function CreateInterviewPage() {
                       {selectedProblem.problemType && (
                         <Badge variant="secondary">{selectedProblem.problemType}</Badge>
                       )}
-                      {selectedProblem.language && (
-                        <Badge variant="secondary">{selectedProblem.language}</Badge>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -572,7 +567,6 @@ export default function CreateInterviewPage() {
                             <div className="flex gap-2 flex-wrap">
                               <Badge variant="outline">平台模板</Badge>
                               <Badge variant="secondary">{template.duration} 分钟</Badge>
-                              {template.language && <Badge variant="secondary">{template.language}</Badge>}
                               {template.difficulty && <Badge variant="secondary">{template.difficulty}</Badge>}
                             </div>
                           </div>

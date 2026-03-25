@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { useDebounce } from '@/hooks/use-debounce'
-import { MoreHorizontal, ExternalLink, FolderOpen, MessageSquare, ClipboardCheck, Eye, Ban } from 'lucide-react'
+import { MoreHorizontal, ExternalLink, FolderOpen, MessageSquare, ClipboardCheck, Eye, Ban, Trash2 } from 'lucide-react'
 import type { PaginationMeta, InterviewStatus, InterviewQuotaState } from '@vibe/shared-types'
 import { apiFetch, downloadFile } from '@/lib/api'
 import { copyToClipboard } from '@/lib/clipboard'
@@ -88,6 +88,8 @@ export default function InterviewsPage() {
   const [loading, setLoading] = useState(true)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancellingInterviewId, setCancellingInterviewId] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingInterviewId, setDeletingInterviewId] = useState<string | null>(null)
   const [chatDialogOpen, setChatDialogOpen] = useState(false)
   const [evaluationDialogOpen, setEvaluationDialogOpen] = useState(false)
   const [selectedInterviewId, setSelectedInterviewId] = useState<string | null>(null)
@@ -167,6 +169,30 @@ export default function InterviewsPage() {
     } finally {
       setCancellingInterviewId(null)
       setCancelDialogOpen(false)
+    }
+  }
+
+  const handleDelete = (id: string) => {
+    setDeletingInterviewId(id)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!deletingInterviewId) return
+
+    try {
+      await apiFetch(`/api/admin/interviews/${deletingInterviewId}/delete`, {
+        method: 'POST'
+      })
+
+      loadInterviews()
+      toast.success('面试已删除')
+    } catch (err) {
+      console.error(err)
+      toast.error('删除失败')
+    } finally {
+      setDeletingInterviewId(null)
+      setDeleteDialogOpen(false)
     }
   }
 
@@ -505,6 +531,18 @@ export default function InterviewsPage() {
                                   </DropdownMenuItem>
                                 </>
                               )}
+                              {['COMPLETED', 'CANCELLED', 'EXPIRED', 'SUBMITTED'].includes(interview.status) && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                    onClick={() => handleDelete(interview.id)}
+                                  >
+                                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                    删除面试
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -539,6 +577,16 @@ export default function InterviewsPage() {
         description="确定要取消这场待开始面试吗？取消后会释放预占的面试配额。"
         onConfirm={confirmCancel}
         confirmText="取消面试"
+        variant="destructive"
+      />
+
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="确认删除"
+        description="确定要删除这场面试吗？删除后面试将从列表中隐藏，但数据不会被物理删除，仍可通过直接链接访问。"
+        onConfirm={confirmDelete}
+        confirmText="删除面试"
         variant="destructive"
       />
 

@@ -256,11 +256,8 @@ function buildSnapshots(
     requirements: string;
     duration: number;
     difficulty?: string | null;
-    roleTrack?: string | null;
-    language?: string | null;
     scoringCriteria: Prisma.JsonValue;
-    evaluationInstructionsText?: string | null;
-    acceptanceCriteria?: Prisma.JsonValue | null;
+    scoringRubric?: string | null;
   },
   candidate: {
     name: string;
@@ -281,14 +278,11 @@ function buildSnapshots(
       requirements: problem.requirements,
       duration: problem.duration,
       difficulty: problem.difficulty,
-      roleTrack: problem.roleTrack,
-      language: problem.language,
       positionName
     },
     evaluationCriteriaSnapshot: {
       scoringCriteria: problem.scoringCriteria,
-      evaluationInstructionsText: problem.evaluationInstructionsText,
-      acceptanceCriteria: problem.acceptanceCriteria
+      scoringRubric: problem.scoringRubric
     }
   };
 }
@@ -297,7 +291,8 @@ async function getProblemForOrganization(problemId: string, organizationId: stri
   const problem = await prisma.problem.findFirst({
     where: {
       id: problemId,
-      organizationId
+      organizationId,
+      deletedAt: null
     }
   });
 

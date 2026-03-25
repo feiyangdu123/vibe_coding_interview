@@ -26,7 +26,7 @@ interface SessionUser {
   username: string
   organizationName?: string
   organizationSlug?: string
-  role: 'ORG_ADMIN' | 'INTERVIEWER'
+  role: 'PLATFORM_ADMIN' | 'ORG_ADMIN' | 'INTERVIEWER'
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -123,13 +123,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-slate-950">{user.username}</div>
-                  <div className="truncate text-sm text-slate-500">{user.organizationName || '未命名组织'}</div>
-                  {user.organizationSlug ? (
-                    <div className="truncate text-xs text-slate-400">{user.organizationSlug}</div>
-                  ) : null}
+                  <div className="truncate text-sm text-slate-500">{user.organizationName || (user.role === 'PLATFORM_ADMIN' ? '平台管理' : '未命名组织')}</div>
                   <div className="mt-2">
-                    <Badge variant={user.role === 'ORG_ADMIN' ? 'info' : 'secondary'}>
-                      {user.role === 'ORG_ADMIN' ? '组织管理员' : '面试官'}
+                    <Badge variant={user.role === 'PLATFORM_ADMIN' ? 'destructive' : user.role === 'ORG_ADMIN' ? 'info' : 'secondary'}>
+                      {user.role === 'PLATFORM_ADMIN' ? '平台管理员' : user.role === 'ORG_ADMIN' ? '组织管理员' : '面试官'}
                     </Badge>
                   </div>
                 </div>
@@ -151,7 +148,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               return (
                 <div key={item.href}>
                   <Link
-                    href={item.children?.[0]?.href && pathname.startsWith(item.href) ? item.children[0].href : item.href}
+                    href={item.children?.[0]?.href ? item.children[0].href : item.href}
                     className={cn(
                       'group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors',
                       active
@@ -270,7 +267,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </Badge>
               <div className="hidden items-center gap-2 rounded-lg border border-border bg-slate-50 px-3 py-2 text-sm text-slate-600 md:flex">
                 <Building2 className="h-4 w-4" />
-                <span className="max-w-[180px] truncate">{user?.organizationName || '未命名组织'}</span>
+                <span className="max-w-[180px] truncate">{user?.organizationName || (user?.role === 'PLATFORM_ADMIN' ? '平台管理' : '未命名组织')}</span>
               </div>
             </div>
           </div>

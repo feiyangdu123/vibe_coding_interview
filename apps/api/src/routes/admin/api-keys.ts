@@ -5,7 +5,7 @@ import type {
   SessionUser,
   UpdateOrganizationApiKeyConfigDto
 } from '@vibe/shared-types';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 
 function ensureOrgAdmin(
   request: { user?: SessionUser },
@@ -80,6 +80,7 @@ function toSummary(config: {
 
 export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   fastify.get('/api/admin/settings/api-keys', async (request, reply) => {
     if (!ensureOrgAdmin(request, reply)) {
@@ -88,7 +89,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
 
     const configs = await prisma.organizationApiKeyConfig.findMany({
       where: {
-        organizationId: request.user.organizationId
+        organizationId: request.user!.organizationId!
       },
       orderBy: [
         { isSelected: 'desc' },
@@ -128,7 +129,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
       const created = await prisma.$transaction(async (tx) => {
         const existingCount = await tx.organizationApiKeyConfig.count({
           where: {
-            organizationId: request.user.organizationId
+            organizationId: request.user!.organizationId!
           }
         });
 
@@ -137,7 +138,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
         if (shouldSelect) {
           await tx.organizationApiKeyConfig.updateMany({
             where: {
-              organizationId: request.user.organizationId,
+              organizationId: request.user!.organizationId!,
               isSelected: true
             },
             data: {
@@ -148,7 +149,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
 
         return tx.organizationApiKeyConfig.create({
           data: {
-            organizationId: request.user.organizationId,
+            organizationId: request.user!.organizationId!,
             name,
             baseUrl,
             apiKey,
@@ -172,7 +173,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
       const existing = await prisma.organizationApiKeyConfig.findFirst({
         where: {
           id: request.params.id,
-          organizationId: request.user.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 
@@ -228,7 +229,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
       const existing = await prisma.organizationApiKeyConfig.findFirst({
         where: {
           id: request.params.id,
-          organizationId: request.user.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 
@@ -240,7 +241,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
       await prisma.$transaction(async (tx) => {
         await tx.organizationApiKeyConfig.updateMany({
           where: {
-            organizationId: request.user.organizationId,
+            organizationId: request.user!.organizationId!,
             isSelected: true
           },
           data: {
@@ -272,7 +273,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
       const existing = await prisma.organizationApiKeyConfig.findFirst({
         where: {
           id: request.params.id,
-          organizationId: request.user.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 
@@ -291,7 +292,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
         if (existing.isSelected) {
           const fallback = await tx.organizationApiKeyConfig.findFirst({
             where: {
-              organizationId: request.user.organizationId
+              organizationId: request.user!.organizationId!
             },
             orderBy: {
               createdAt: 'asc'

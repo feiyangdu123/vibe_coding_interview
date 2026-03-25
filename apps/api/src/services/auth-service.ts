@@ -12,20 +12,20 @@ function buildSessionUser(user: {
   username: string;
   email: string | null;
   role: any;
-  organizationId: string;
+  organizationId: string | null;
   organization: {
     name: string;
     slug: string;
-  };
+  } | null;
 }): SessionUser {
   return {
     id: user.id,
     username: user.username,
     email: user.email || undefined,
     role: user.role,
-    organizationId: user.organizationId,
-    organizationName: user.organization.name,
-    organizationSlug: user.organization.slug
+    organizationId: user.organizationId || undefined,
+    organizationName: user.organization?.name,
+    organizationSlug: user.organization?.slug
   };
 }
 
@@ -165,9 +165,9 @@ export async function validateSession(sessionToken: string): Promise<SessionUser
     username: user.username,
     email: user.email || undefined,
     role: user.role,
-    organizationId: user.organizationId,
-    organizationName: user.organization.name,
-    organizationSlug: user.organization.slug
+    organizationId: user.organizationId || undefined,
+    organizationName: user.organization?.name,
+    organizationSlug: user.organization?.slug
   };
 }
 

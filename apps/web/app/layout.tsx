@@ -5,6 +5,9 @@ import { Toaster } from 'sonner'
 export const metadata: Metadata = {
   title: 'Vibe Coding Interview',
   description: 'Online coding interview platform',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

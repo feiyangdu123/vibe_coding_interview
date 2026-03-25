@@ -2,10 +2,12 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Building2,
   ClipboardList,
+  Crown,
   FileCode2,
   KeyRound,
   LayoutDashboard,
   ServerCog,
+  Settings2,
   ShieldCheck,
   Users,
   Wallet
@@ -28,34 +30,39 @@ const adminNavigation: AdminNavItem[] = [
     icon: LayoutDashboard
   },
   {
-    href: '/admin/interviews',
-    label: '面试管理',
-    description: '面试执行、评估与结果复核',
-    icon: ClipboardList
-  },
-  {
-    href: '/admin/interview-quota',
-    label: '面试配额',
-    description: '查看剩余场次与消费流水',
-    icon: Wallet
+    href: '/admin/problems',
+    label: '题目管理',
+    description: '企业题库与平台模板',
+    icon: FileCode2,
+    roles: ['ORG_ADMIN', 'INTERVIEWER']
   },
   {
     href: '/admin/candidates',
     label: '候选人',
     description: '候选人档案与联系方式',
-    icon: Users
+    icon: Users,
+    roles: ['ORG_ADMIN', 'INTERVIEWER']
   },
   {
-    href: '/admin/problems',
-    label: '题目管理',
-    description: '企业题库与平台模板',
-    icon: FileCode2
+    href: '/admin/interviews',
+    label: '面试管理',
+    description: '面试执行、评估与结果复核',
+    icon: ClipboardList,
+    roles: ['ORG_ADMIN', 'INTERVIEWER']
+  },
+  {
+    href: '/admin/interview-quota',
+    label: '面试配额',
+    description: '查看剩余场次与消费流水',
+    icon: Wallet,
+    roles: ['ORG_ADMIN']
   },
   {
     href: '/admin/processes',
     label: '运行进程',
     description: 'Runtime 进程与健康状态',
-    icon: ServerCog
+    icon: ServerCog,
+    roles: ['ORG_ADMIN']
   },
   {
     href: '/admin/settings',
@@ -77,6 +84,29 @@ const adminNavigation: AdminNavItem[] = [
         description: '管理组织级 API 凭证',
         icon: KeyRound,
         roles: ['ORG_ADMIN']
+      }
+    ]
+  },
+  {
+    href: '/admin/platform',
+    label: '平台管理',
+    description: '平台模板与评估配置',
+    icon: Crown,
+    roles: ['PLATFORM_ADMIN'],
+    children: [
+      {
+        href: '/admin/platform/templates',
+        label: '模板管理',
+        description: '管理平台题目模板库',
+        icon: FileCode2,
+        roles: ['PLATFORM_ADMIN']
+      },
+      {
+        href: '/admin/platform/evaluation-configs',
+        label: '评估配置',
+        description: '按题目类型配置评估维度',
+        icon: Settings2,
+        roles: ['PLATFORM_ADMIN']
       }
     ]
   }

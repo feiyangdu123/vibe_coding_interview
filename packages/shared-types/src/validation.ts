@@ -14,16 +14,10 @@ export const problemSchema = z.object({
   workDirTemplate: z.string().min(1, "工作目录不能为空"),
   scoringCriteria: z.record(z.string(), z.any()).optional(),
   visibility: z.enum(['PRIVATE', 'ORG_SHARED']).optional(),
-  problemType: z.enum(['CODING', 'SYSTEM_DESIGN', 'ALGORITHM', 'DEBUGGING']).optional(),
-  roleTrack: z.string().optional(),
+  problemType: z.enum(['ALGORITHM_MODELING', 'FEATURE_DEV', 'DEBUG_FIX', 'DATA_PROCESSING', 'AGENT_DEV', 'ITERATION_REFACTOR', 'PRODUCT_DESIGN']).optional(),
   difficulty: z.string().optional(),
-  language: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  evaluationInstructionsText: z.string().optional(),
-  acceptanceCriteria: z.union([
-    z.array(z.string()),
-    z.record(z.string(), z.any())
-  ]).optional()
+  scoringRubric: z.string().optional()
 })
 
 export type ProblemFormData = z.infer<typeof problemSchema>
@@ -53,7 +47,7 @@ export const organizationUserSchema = z.object({
   username: z.string().min(3, "用户名至少 3 个字符").max(50, "用户名过长"),
   email: z.string().email("邮箱格式不正确").optional().or(z.literal("")),
   password: z.string().min(6, "密码至少 6 位"),
-  role: z.enum(['ORG_ADMIN', 'INTERVIEWER'])
+  role: z.enum(['PLATFORM_ADMIN', 'ORG_ADMIN', 'INTERVIEWER'])
 })
 
 export type OrganizationUserFormData = z.infer<typeof organizationUserSchema>

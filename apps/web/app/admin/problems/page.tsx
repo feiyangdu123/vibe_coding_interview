@@ -24,7 +24,6 @@ import { apiFetch } from '@/lib/api'
 
 interface Problem {
   id: string
-  slug?: string
   title: string
   description: string
   requirements: string
@@ -33,9 +32,7 @@ interface Problem {
   createdAt: string
   visibility?: ProblemVisibility
   problemType?: ProblemType
-  roleTrack?: string
   difficulty?: string
-  language?: string
   tags?: string[]
 }
 
@@ -66,8 +63,6 @@ export default function ProblemsPage() {
   const [filters, setFilters] = useState({
     problemType: 'all',
     difficulty: 'all',
-    roleTrack: '',
-    language: 'all',
     tags: ''
   })
 
@@ -81,13 +76,10 @@ export default function ProblemsPage() {
       workDirTemplate: 'templates/default',
       scoringCriteria: {},
       visibility: 'PRIVATE',
-      problemType: 'CODING',
-      roleTrack: '',
+      problemType: 'FEATURE_DEV',
       difficulty: '',
-      language: '',
       tags: [],
-      evaluationInstructionsText: '',
-      acceptanceCriteria: []
+      scoringRubric: '',
     }
   })
 
@@ -99,8 +91,6 @@ export default function ProblemsPage() {
         ...(debouncedSearch && { search: debouncedSearch }),
         ...(filters.problemType !== 'all' && { problemType: filters.problemType }),
         ...(filters.difficulty !== 'all' && { difficulty: filters.difficulty }),
-        ...(filters.roleTrack && { roleTrack: filters.roleTrack }),
-        ...(filters.language !== 'all' && { language: filters.language }),
         ...(filters.tags && { tags: filters.tags })
       })
 
@@ -138,13 +128,10 @@ export default function ProblemsPage() {
       workDirTemplate: 'templates/default',
       scoringCriteria: {},
       visibility: 'PRIVATE',
-      problemType: 'CODING',
-      roleTrack: '',
+      problemType: 'FEATURE_DEV',
       difficulty: '',
-      language: '',
       tags: [],
-      evaluationInstructionsText: '',
-      acceptanceCriteria: []
+      scoringRubric: '',
     })
     setDialogOpen(true)
   }
@@ -171,13 +158,10 @@ export default function ProblemsPage() {
       workDirTemplate: problem.workDirTemplate,
       scoringCriteria: {},
       visibility: problem.visibility || 'PRIVATE',
-      problemType: problem.problemType || 'CODING',
-      roleTrack: problem.roleTrack || '',
+      problemType: problem.problemType || 'FEATURE_DEV',
       difficulty: problem.difficulty || '',
-      language: problem.language || '',
       tags: problem.tags || [],
-      evaluationInstructionsText: '',
-      acceptanceCriteria: []
+      scoringRubric: '',
     })
     setDialogOpen(true)
   }
@@ -223,9 +207,9 @@ export default function ProblemsPage() {
 
       loadProblems()
       toast.success('题目删除成功')
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      toast.error('删除失败')
+      toast.error(err?.message || '删除失败')
     } finally {
       setDeletingProblemId(null)
       setDeleteDialogOpen(false)
@@ -281,7 +265,7 @@ export default function ProblemsPage() {
             />
           </div>
 
-          <div className="grid grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-3 gap-3 mb-4">
             <Select
               value={filters.problemType}
               onValueChange={(v) => setFilters({ ...filters, problemType: v })}
@@ -291,10 +275,13 @@ export default function ProblemsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部类型</SelectItem>
-                <SelectItem value="CODING">编程</SelectItem>
-                <SelectItem value="SYSTEM_DESIGN">系统设计</SelectItem>
-                <SelectItem value="ALGORITHM">算法</SelectItem>
-                <SelectItem value="DEBUGGING">调试</SelectItem>
+                <SelectItem value="ALGORITHM_MODELING">算法与建模</SelectItem>
+                <SelectItem value="FEATURE_DEV">功能开发</SelectItem>
+                <SelectItem value="DEBUG_FIX">调试修复</SelectItem>
+                <SelectItem value="DATA_PROCESSING">数据处理与分析</SelectItem>
+                <SelectItem value="AGENT_DEV">智能体开发</SelectItem>
+                <SelectItem value="ITERATION_REFACTOR">迭代重构</SelectItem>
+                <SelectItem value="PRODUCT_DESIGN">产品设计</SelectItem>
               </SelectContent>
             </Select>
 
@@ -314,29 +301,6 @@ export default function ProblemsPage() {
             </Select>
 
             <Input
-              placeholder="职位方向"
-              value={filters.roleTrack}
-              onChange={(e) => setFilters({ ...filters, roleTrack: e.target.value })}
-            />
-
-            <Select
-              value={filters.language}
-              onValueChange={(v) => setFilters({ ...filters, language: v })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="语言" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部语言</SelectItem>
-                <SelectItem value="JavaScript">JavaScript</SelectItem>
-                <SelectItem value="Python">Python</SelectItem>
-                <SelectItem value="Java">Java</SelectItem>
-                <SelectItem value="Go">Go</SelectItem>
-                <SelectItem value="TypeScript">TypeScript</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Input
               placeholder="标签（逗号分隔）"
               value={filters.tags}
               onChange={(e) => setFilters({ ...filters, tags: e.target.value })}
@@ -349,8 +313,6 @@ export default function ProblemsPage() {
                 <TableHead>标题</TableHead>
                 <TableHead>类型</TableHead>
                 <TableHead>难度</TableHead>
-                <TableHead>职位方向</TableHead>
-                <TableHead>语言</TableHead>
                 <TableHead>时长</TableHead>
                 <TableHead>可见性</TableHead>
                 <TableHead>操作</TableHead>
@@ -359,7 +321,7 @@ export default function ProblemsPage() {
             <TableBody>
               {problems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     {search ? '未找到匹配的题目' : (viewMode === 'organization' ? '暂无题目，点击"新建题目"创建第一个题目' : '暂无平台模板')}
                   </TableCell>
                 </TableRow>
@@ -370,10 +332,13 @@ export default function ProblemsPage() {
                     <TableCell>
                       {problem.problemType && (
                         <Badge variant="outline">
-                          {problem.problemType === 'CODING' ? '编程' :
-                           problem.problemType === 'SYSTEM_DESIGN' ? '系统设计' :
-                           problem.problemType === 'ALGORITHM' ? '算法' :
-                           problem.problemType === 'DEBUGGING' ? '调试' : problem.problemType}
+                          {problem.problemType === 'ALGORITHM_MODELING' ? '算法与建模' :
+                           problem.problemType === 'FEATURE_DEV' ? '功能开发' :
+                           problem.problemType === 'DEBUG_FIX' ? '调试修复' :
+                           problem.problemType === 'DATA_PROCESSING' ? '数据处理与分析' :
+                           problem.problemType === 'AGENT_DEV' ? '智能体开发' :
+                           problem.problemType === 'ITERATION_REFACTOR' ? '迭代重构' :
+                           problem.problemType === 'PRODUCT_DESIGN' ? '产品设计' : problem.problemType}
                         </Badge>
                       )}
                     </TableCell>
@@ -389,8 +354,6 @@ export default function ProblemsPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell>{problem.roleTrack || '-'}</TableCell>
-                    <TableCell>{problem.language || '-'}</TableCell>
                     <TableCell>{problem.duration} 分钟</TableCell>
                     <TableCell>
                       <Badge variant={viewMode === 'organization' && problem.visibility === 'ORG_SHARED' ? 'default' : 'secondary'}>
@@ -559,26 +522,15 @@ export default function ProblemsPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="CODING">编程</SelectItem>
-                          <SelectItem value="SYSTEM_DESIGN">系统设计</SelectItem>
-                          <SelectItem value="ALGORITHM">算法</SelectItem>
-                          <SelectItem value="DEBUGGING">调试</SelectItem>
+                          <SelectItem value="ALGORITHM_MODELING">算法与建模</SelectItem>
+                          <SelectItem value="FEATURE_DEV">功能开发</SelectItem>
+                          <SelectItem value="DEBUG_FIX">调试修复</SelectItem>
+                          <SelectItem value="DATA_PROCESSING">数据处理与分析</SelectItem>
+                          <SelectItem value="AGENT_DEV">智能体开发</SelectItem>
+                          <SelectItem value="ITERATION_REFACTOR">迭代重构</SelectItem>
+                          <SelectItem value="PRODUCT_DESIGN">产品设计</SelectItem>
                         </SelectContent>
                       </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="roleTrack"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>职位方向</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="例如：前端工程师、后端工程师" />
-                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -600,31 +552,6 @@ export default function ProblemsPage() {
                           <SelectItem value="Easy">简单</SelectItem>
                           <SelectItem value="Medium">中等</SelectItem>
                           <SelectItem value="Hard">困难</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="language"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>编程语言</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择编程语言" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="JavaScript">JavaScript</SelectItem>
-                          <SelectItem value="Python">Python</SelectItem>
-                          <SelectItem value="Java">Java</SelectItem>
-                          <SelectItem value="Go">Go</SelectItem>
-                          <SelectItem value="TypeScript">TypeScript</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -656,35 +583,12 @@ export default function ProblemsPage() {
 
                 <FormField
                   control={form.control}
-                  name="evaluationInstructionsText"
+                  name="scoringRubric"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>评估说明</FormLabel>
+                      <FormLabel>评分细则</FormLabel>
                       <FormControl>
-                        <Textarea {...field} rows={3} placeholder="评估候选人时的注意事项" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="acceptanceCriteria"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>验收标准</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          value={Array.isArray(field.value) ? field.value.join('\n') : ''}
-                          onChange={(e) => {
-                            const criteria = e.target.value.split('\n').filter(Boolean)
-                            field.onChange(criteria)
-                          }}
-                          rows={4}
-                          placeholder="每行一个标准，或JSON格式"
-                        />
+                        <Textarea {...field} rows={3} placeholder="评估候选人时的评分细则" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

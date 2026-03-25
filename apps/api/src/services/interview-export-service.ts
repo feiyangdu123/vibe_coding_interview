@@ -12,7 +12,7 @@ export async function exportInterviewsToExcel(
   }
 ): Promise<Buffer> {
   // 构建查询条件（复用列表页逻辑）
-  const where: any = { organizationId };
+  const where: any = { organizationId, deletedAt: null };
 
   if (filters.status) where.status = filters.status;
   if (filters.aiStatus) where.aiEvaluationStatus = filters.aiStatus;

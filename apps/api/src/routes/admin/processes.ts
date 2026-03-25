@@ -1,10 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { prisma, InterviewStatus } from '@vibe/database';
 import { getOpenCodeManager } from '../../services/interview-service';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 
 export default async function processesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   // Get all process statuses
   fastify.get('/api/admin/processes', async (request, reply) => {
@@ -15,7 +16,7 @@ export default async function processesRoutes(fastify: FastifyInstance) {
       const interviews = await prisma.interview.findMany({
         where: {
           status: InterviewStatus.IN_PROGRESS,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         },
         include: {
           candidate: true,
@@ -85,7 +86,7 @@ export default async function processesRoutes(fastify: FastifyInstance) {
           where: { id: interviewId }
         });
 
-        if (!interview || interview.organizationId !== request.user!.organizationId) {
+        if (!interview || interview.organizationId !== request.user!.organizationId!) {
           return reply.status(404).send({ error: 'Interview not found' });
         }
 

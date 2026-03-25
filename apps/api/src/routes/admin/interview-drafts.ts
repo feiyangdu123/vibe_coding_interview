@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@vibe/database';
 import type { InterviewDraft } from '@vibe/shared-types';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 
 function parseCandidateIds(candidateId?: string | null) {
   if (!candidateId) {
@@ -22,17 +23,16 @@ function serializeCandidateIds(candidateIds?: string[]) {
 }
 
 export async function interviewDraftRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
+
   // GET /api/admin/interview-drafts/current - 获取当前用户草稿
   fastify.get('/api/admin/interview-drafts/current', async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-
     const draft = await prisma.interviewDraft.findUnique({
       where: {
         organizationId_createdById: {
-          organizationId: request.user.organizationId,
-          createdById: request.user.id
+          organizationId: request.user!.organizationId!,
+          createdById: request.user!.id
         }
       }
     });
@@ -67,10 +67,6 @@ export async function interviewDraftRoutes(fastify: FastifyInstance) {
   fastify.post<{
     Body: Partial<Omit<InterviewDraft, 'id' | 'organizationId' | 'createdById' | 'createdAt' | 'updatedAt'>>;
   }>('/api/admin/interview-drafts', async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-
     const { candidateIds: draftCandidateIds, ...draftBody } = request.body;
     const payload = {
       ...draftBody,
@@ -83,8 +79,8 @@ export async function interviewDraftRoutes(fastify: FastifyInstance) {
     const draft = await prisma.interviewDraft.upsert({
       where: {
         organizationId_createdById: {
-          organizationId: request.user.organizationId,
-          createdById: request.user.id
+          organizationId: request.user!.organizationId!,
+          createdById: request.user!.id
         }
       },
       update: {
@@ -93,8 +89,8 @@ export async function interviewDraftRoutes(fastify: FastifyInstance) {
       },
       create: {
         ...payload,
-        organizationId: request.user.organizationId,
-        createdById: request.user.id
+        organizationId: request.user!.organizationId!,
+        createdById: request.user!.id
       }
     });
 
@@ -122,14 +118,10 @@ export async function interviewDraftRoutes(fastify: FastifyInstance) {
 
   // DELETE /api/admin/interview-drafts/current - 删除当前用户草稿
   fastify.delete('/api/admin/interview-drafts/current', async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-
     await prisma.interviewDraft.deleteMany({
       where: {
-        organizationId: request.user.organizationId,
-        createdById: request.user.id
+        organizationId: request.user!.organizationId!,
+        createdById: request.user!.id
       }
     });
 

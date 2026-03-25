@@ -57,7 +57,7 @@ export interface SessionUser {
   username: string;
   email?: string;
   role: UserRole;
-  organizationId: string;
+  organizationId?: string;
   organizationName?: string;
   organizationSlug?: string;
 }
@@ -118,12 +118,9 @@ export interface CreateProblemDto {
   // 新增字段
   visibility?: ProblemVisibility;
   problemType?: ProblemType;
-  roleTrack?: string;
   difficulty?: string;
-  language?: string;
   tags?: string[];
-  evaluationInstructionsText?: string;
-  acceptanceCriteria?: any;
+  scoringRubric?: string;
 }
 
 export interface CreateCandidateDto {
@@ -134,18 +131,14 @@ export interface CreateCandidateDto {
 
 export interface ProblemTemplateResponse {
   id: string;
-  slug: string;
   title: string;
   description: string;
   requirements: string;
   duration: number;
   problemType: ProblemType;
-  roleTrack?: string;
   difficulty?: string;
-  language?: string;
   tags?: string[];
-  evaluationInstructionsText?: string;
-  acceptanceCriteria?: any;
+  scoringRubric?: string;
   workDirTemplate: string;
   isActive: boolean;
   createdAt: string;
@@ -280,6 +273,58 @@ export interface InterviewQuotaLedgerEntry {
 export interface TriggerEvaluationResponse {
   message: string;
   status?: string;
+}
+
+export interface EvaluationDimension {
+  name: string;
+  maxScore: number;
+  description: string;
+}
+
+export interface EvaluationCriteriaConfigResponse {
+  id: string;
+  problemType: ProblemType;
+  displayName: string;
+  description?: string;
+  dimensions: EvaluationDimension[];
+  promptTemplate?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertEvaluationCriteriaConfigDto {
+  displayName: string;
+  description?: string;
+  dimensions: EvaluationDimension[];
+  promptTemplate?: string;
+  isActive?: boolean;
+}
+
+export interface CreateProblemTemplateDto {
+  title: string;
+  description: string;
+  requirements: string;
+  scoringCriteria: any;
+  workDirTemplate: string;
+  duration: number;
+  problemType?: ProblemType;
+  difficulty?: string;
+  tags?: string[];
+  scoringRubric?: string;
+}
+
+export interface UpdateProblemTemplateDto {
+  title?: string;
+  description?: string;
+  requirements?: string;
+  scoringCriteria?: any;
+  workDirTemplate?: string;
+  duration?: number;
+  problemType?: ProblemType;
+  difficulty?: string;
+  tags?: string[];
+  scoringRubric?: string;
 }
 
 export * from './validation';

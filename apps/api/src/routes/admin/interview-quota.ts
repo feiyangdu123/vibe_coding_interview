@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 import {
   getInterviewQuotaSummaryForOrganization,
   listInterviewQuotaLedger
@@ -8,9 +8,10 @@ import { parsePaginationParams } from '../../utils/pagination';
 
 export async function interviewQuotaRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   fastify.get('/api/admin/interview-quota', async (request) => {
-    return getInterviewQuotaSummaryForOrganization(request.user!.organizationId);
+    return getInterviewQuotaSummaryForOrganization(request.user!.organizationId!);
   });
 
   fastify.get<{
@@ -28,7 +29,7 @@ export async function interviewQuotaRoutes(fastify: FastifyInstance) {
         ? request.query.flow
         : 'all';
 
-    return listInterviewQuotaLedger(request.user!.organizationId, {
+    return listInterviewQuotaLedger(request.user!.organizationId!, {
       page,
       limit,
       flow

@@ -5,11 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowRight,
+  Building2,
   CalendarClock,
   ClipboardList,
+  Crown,
   FileCode2,
   FileSpreadsheet,
   ServerCog,
+  Settings2,
   Users,
   Wallet
 } from 'lucide-react'
@@ -20,6 +23,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiFetch } from '@/lib/api'
 import type { InterviewQuotaSummary } from '@vibe/shared-types'
+
+// --- Org Dashboard types ---
 
 interface DashboardStats {
   interviewTotal: string
@@ -72,7 +77,156 @@ const quickLinks = [
   }
 ]
 
-export default function AdminPage() {
+// --- Platform Dashboard types ---
+
+interface PlatformStats {
+  orgCount: number
+  interviewTotal: number
+  activeTemplates: number
+  inProgressInterviews: number
+  interviewsByOrg: {
+    organizationId: string
+    organizationName: string
+    organizationSlug: string
+    interviewCount: number
+  }[]
+}
+
+const platformQuickLinks = [
+  {
+    href: '/admin/platform/templates',
+    title: '模板管理',
+    description: '管理平台题目模板库，供企业复制使用',
+    tag: '平台模板',
+    icon: FileCode2
+  },
+  {
+    href: '/admin/platform/evaluation-configs',
+    title: '评估配置',
+    description: '按题目类型配置 AI 评估维度与提示词',
+    tag: '评估管理',
+    icon: Settings2
+  }
+]
+
+// --- Platform Admin Dashboard ---
+
+function PlatformDashboard() {
+  const [stats, setStats] = useState<PlatformStats | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/platform/stats')
+      .then(setStats)
+      .catch(() => {})
+  }, [])
+
+  return (
+    <div className="console-page">
+      <PageHeader
+        meta="Platform Admin"
+        title="平台运营总览"
+        description="全平台视角查看企业数量、面试总量、模板与活跃进程。"
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="企业总数"
+          value={stats ? String(stats.orgCount) : '--'}
+          description="已注册的企业组织数量"
+          icon={Building2}
+        />
+        <MetricCard
+          label="面试总量"
+          value={stats ? String(stats.interviewTotal) : '--'}
+          description="全平台累计面试场次"
+          icon={ClipboardList}
+        />
+        <MetricCard
+          label="活跃模板"
+          value={stats ? String(stats.activeTemplates) : '--'}
+          description="当前启用的平台题目模板"
+          icon={FileCode2}
+          tone="success"
+        />
+        <MetricCard
+          label="进行中面试"
+          value={stats ? String(stats.inProgressInterviews) : '--'}
+          description="当前正在进行的面试场次"
+          icon={ServerCog}
+          tone="warning"
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.25fr,0.95fr]">
+        <Card>
+          <CardHeader>
+            <div className="console-kicker">Organization Overview</div>
+            <CardTitle className="mt-2">各企业面试情况</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!stats?.interviewsByOrg?.length ? (
+              <div className="py-8 text-center text-sm text-slate-500">暂无面试数据</div>
+            ) : (
+              <div className="space-y-2">
+                {stats.interviewsByOrg.map((org) => (
+                  <div
+                    key={org.organizationId}
+                    className="flex items-center justify-between rounded-lg border border-border px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-slate-950">{org.organizationName}</div>
+                        {org.organizationSlug && (
+                          <Badge variant="secondary">{org.organizationSlug}</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-sm font-semibold text-slate-700">{org.interviewCount} 场</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <div className="console-kicker">Quick Access</div>
+              <CardTitle className="mt-2">平台管理入口</CardTitle>
+            </div>
+            <Badge variant="outline">
+              <Crown className="mr-1 h-3 w-3" />
+              管理员
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {platformQuickLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center justify-between rounded-lg border border-border px-4 py-3 transition-colors hover:bg-slate-50"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium text-slate-950">{item.title}</div>
+                    <Badge variant="secondary">{item.tag}</Badge>
+                  </div>
+                  <div className="mt-1 text-sm text-slate-500">{item.description}</div>
+                </div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+// --- Org Admin Dashboard ---
+
+function OrgDashboard() {
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats>(defaultStats)
   const [quotaSummary, setQuotaSummary] = useState<InterviewQuotaSummary | null>(null)
@@ -238,4 +392,30 @@ export default function AdminPage() {
       </div>
     </div>
   )
+}
+
+// --- Main Page: role-based rendering ---
+
+export default function AdminPage() {
+  const [role, setRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/auth/me')
+      .then((data) => setRole(data.user?.role ?? null))
+      .catch(() => {})
+  }, [])
+
+  if (!role) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-sm text-slate-500">加载中...</div>
+      </div>
+    )
+  }
+
+  if (role === 'PLATFORM_ADMIN') {
+    return <PlatformDashboard />
+  }
+
+  return <OrgDashboard />
 }

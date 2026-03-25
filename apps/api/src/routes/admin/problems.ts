@@ -2,29 +2,26 @@ import type { FastifyInstance } from 'fastify';
 import { prisma, ProblemVisibility, ProblemType } from '@vibe/database';
 import type { CreateProblemDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 
 export async function problemRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   function buildProblemFilters(query: {
     search?: string;
     visibility?: string;
     problemType?: string;
     difficulty?: string;
-    roleTrack?: string;
-    language?: string;
     tags?: string;
   }) {
     const search = query.search?.trim() || '';
-    const { visibility, problemType, difficulty, roleTrack, language, tags } = query;
+    const { visibility, problemType, difficulty, tags } = query;
 
     return {
       ...(visibility && { visibility }),
       ...(problemType && { problemType }),
       ...(difficulty && { difficulty }),
-      ...(roleTrack && { roleTrack: { contains: roleTrack, mode: 'insensitive' as const } }),
-      ...(language && { language }),
       ...(tags && { tags: { hasSome: tags.split(',').map(t => t.trim()) } }),
       ...(search && {
         OR: [
@@ -43,8 +40,6 @@ export async function problemRoutes(fastify: FastifyInstance) {
       visibility?: string;
       problemType?: string;
       difficulty?: string;
-      roleTrack?: string;
-      language?: string;
       tags?: string;
     }
   }>(
@@ -53,7 +48,8 @@ export async function problemRoutes(fastify: FastifyInstance) {
       const { page, limit } = parsePaginationParams(request.query);
 
       const where: any = {
-        organizationId: request.user!.organizationId,
+        organizationId: request.user!.organizationId!,
+        deletedAt: null,
         ...buildProblemFilters(request.query)
       };
 
@@ -78,10 +74,10 @@ export async function problemRoutes(fastify: FastifyInstance) {
     return await prisma.problem.create({
       data: {
         ...request.body,
-        organizationId: request.user!.organizationId,
+        organizationId: request.user!.organizationId!,
         createdById: request.user!.id,
         visibility: request.body.visibility || ProblemVisibility.PRIVATE,
-        problemType: request.body.problemType || ProblemType.CODING
+        problemType: request.body.problemType || ProblemType.FEATURE_DEV
       }
     });
   });
@@ -92,7 +88,7 @@ export async function problemRoutes(fastify: FastifyInstance) {
       const problem = await prisma.problem.findFirst({
         where: {
           id: request.params.id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 
@@ -112,7 +108,7 @@ export async function problemRoutes(fastify: FastifyInstance) {
     const problem = await prisma.problem.findFirst({
       where: {
         id: request.params.id,
-        organizationId: request.user!.organizationId
+        organizationId: request.user!.organizationId!
       }
     });
 
@@ -121,8 +117,9 @@ export async function problemRoutes(fastify: FastifyInstance) {
       return;
     }
 
-    return await prisma.problem.delete({
-      where: { id: request.params.id }
+    return await prisma.problem.update({
+      where: { id: request.params.id },
+      data: { deletedAt: new Date() }
     });
   });
 
@@ -133,8 +130,6 @@ export async function problemRoutes(fastify: FastifyInstance) {
       search?: string;
       problemType?: string;
       difficulty?: string;
-      roleTrack?: string;
-      language?: string;
       tags?: string;
     }
   }>(
@@ -186,16 +181,13 @@ export async function problemRoutes(fastify: FastifyInstance) {
           scoringCriteria: template.scoringCriteria as any,
           workDirTemplate: template.workDirTemplate,
           duration: template.duration,
-          organizationId: request.user!.organizationId,
+          organizationId: request.user!.organizationId!,
           createdById: request.user!.id,
           visibility: ProblemVisibility.PRIVATE,
           problemType: template.problemType,
-          roleTrack: template.roleTrack,
           difficulty: template.difficulty,
-          language: template.language,
           tags: template.tags,
-          evaluationInstructionsText: template.evaluationInstructionsText,
-          acceptanceCriteria: template.acceptanceCriteria as any
+          scoringRubric: template.scoringRubric
         }
       });
 

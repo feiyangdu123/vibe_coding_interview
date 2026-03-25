@@ -41,7 +41,6 @@ interface Interview {
   problemSnapshot?: {
     positionName?: string
     difficulty?: string
-    roleTrack?: string
   }
   interviewer?: {
     username: string

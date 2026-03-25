@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserRole {
+  PLATFORM_ADMIN
   ORG_ADMIN
   INTERVIEWER
 }
@@ -18,10 +19,13 @@ enum ProblemVisibility {
 }
 
 enum ProblemType {
-  CODING
-  SYSTEM_DESIGN
-  ALGORITHM
-  DEBUGGING
+  ALGORITHM_MODELING
+  FEATURE_DEV
+  DEBUG_FIX
+  DATA_PROCESSING
+  AGENT_DEV
+  ITERATION_REFACTOR
+  PRODUCT_DESIGN
 }
 
 enum InterviewStatus {
@@ -120,11 +124,11 @@ model User {
   passwordHash   String
   email          String?
   role           UserRole
-  organizationId String
+  organizationId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization        Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdProblems     Problem[]     @relation("ProblemCreator")
   conductedInterviews Interview[]   @relation("InterviewInterviewer")
   sessions            AuthSession[]
@@ -159,18 +163,16 @@ model Problem {
   duration        Int
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
 
   // 新增字段
   organizationId             String
   createdById                String
   visibility                 ProblemVisibility @default(PRIVATE)
-  problemType                ProblemType       @default(CODING)
-  roleTrack                  String?
+  problemType                ProblemType       @default(FEATURE_DEV)
   difficulty                 String?
-  language                   String?
   tags                       String[]          @default([])
-  evaluationInstructionsText String?           @db.Text
-  acceptanceCriteria         Json?
+  scoringRubric              String?           @db.Text
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation("ProblemCreator", fields: [createdById], references: [id])
@@ -184,20 +186,16 @@ model Problem {
 
 model ProblemTemplate {
   id                         String      @id @default(uuid())
-  slug                       String      @unique
   title                      String
   description                String      @db.Text
   requirements               String      @db.Text
   scoringCriteria            Json
   workDirTemplate            String
   duration                   Int
-  problemType                ProblemType @default(CODING)
-  roleTrack                  String?
+  problemType                ProblemType @default(FEATURE_DEV)
   difficulty                 String?
-  language                   String?
   tags                       String[]    @default([])
-  evaluationInstructionsText String?     @db.Text
-  acceptanceCriteria         Json?
+  scoringRubric              String?     @db.Text
   isActive                   Boolean     @default(true)
   createdAt                  DateTime    @default(now())
   updatedAt                  DateTime    @updatedAt
@@ -242,6 +240,7 @@ model Interview {
   lastHealthCheck DateTime?
   processError    String?
   createdAt       DateTime         @default(now())
+  deletedAt       DateTime?
 
   // 新增字段
   organizationId String
@@ -416,4 +415,16 @@ model InterviewQuotaLedger {
   @@index([organizationQuotaId, createdAt])
   @@index([interviewId])
   @@index([createdById])
+}
+
+model EvaluationCriteriaConfig {
+  id              String      @id @default(uuid())
+  problemType     ProblemType @unique
+  displayName     String
+  description     String?     @db.Text
+  dimensions      Json
+  promptTemplate  String?     @db.Text
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 }

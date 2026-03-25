@@ -12,10 +12,11 @@ import { evaluateInterview, getEvaluationHistory, getEvaluationRun } from '../..
 import { exportInterviewsToExcel } from '../../services/interview-export-service';
 import type { CreateInterviewDto, SubmitManualReviewDto, SubmitReviewDecisionDto, BatchCreateInterviewDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 
 export async function interviewRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   fastify.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string; aiStatus?: string; reviewStatus?: string; decision?: string } }>(
     '/api/admin/interviews',
@@ -28,7 +29,8 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       const decision = request.query.decision?.trim() || '';
 
       const where: any = {
-        organizationId: request.user!.organizationId
+        organizationId: request.user!.organizationId!,
+        deletedAt: null
       };
 
       // Status filter
@@ -86,7 +88,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     const interview = await prisma.interview.findFirst({
       where: {
         id: request.params.id,
-        organizationId: request.user!.organizationId
+        organizationId: request.user!.organizationId!
       },
       include: {
         candidate: true,
@@ -107,7 +109,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     try {
       return await createInterview(
         request.body,
-        request.user!.organizationId,
+        request.user!.organizationId!,
         request.user!.id
       );
     } catch (error) {
@@ -122,7 +124,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     try {
       const interview = await cancelPendingInterview(
         request.params.id,
-        request.user!.organizationId,
+        request.user!.organizationId!,
         request.user!.id
       );
 
@@ -139,7 +141,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     try {
       return await cancelPendingInterview(
         request.params.id,
-        request.user!.organizationId,
+        request.user!.organizationId!,
         request.user!.id
       );
     } catch (error) {
@@ -148,6 +150,46 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         error: error instanceof Error ? error.message : 'Failed to cancel interview'
       });
     }
+  });
+
+  // 软删除面试（仅已结束的面试）
+  fastify.post<{ Params: { id: string } }>('/api/admin/interviews/:id/delete', async (request, reply) => {
+    const interview = await prisma.interview.findFirst({
+      where: {
+        id: request.params.id,
+        organizationId: request.user!.organizationId!
+      },
+      select: { id: true, status: true, deletedAt: true }
+    });
+
+    if (!interview) {
+      reply.code(404).send({ error: 'Interview not found' });
+      return;
+    }
+
+    if (interview.deletedAt) {
+      reply.code(400).send({ error: '面试已被删除' });
+      return;
+    }
+
+    const allowedStatuses: InterviewStatus[] = [
+      InterviewStatus.COMPLETED,
+      InterviewStatus.CANCELLED,
+      InterviewStatus.EXPIRED,
+      InterviewStatus.SUBMITTED
+    ];
+
+    if (!allowedStatuses.includes(interview.status as InterviewStatus)) {
+      reply.code(400).send({ error: '只能删除已结束的面试（已完成、已取消、已过期、已提交）' });
+      return;
+    }
+
+    await prisma.interview.update({
+      where: { id: interview.id },
+      data: { deletedAt: new Date() }
+    });
+
+    return { success: true };
   });
 
   fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id/chat-history', async (request, reply) => {
@@ -159,7 +201,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       select: { dataDir: true, organizationId: true }
     });
 
-    if (!interview || interview.organizationId !== request.user!.organizationId) {
+    if (!interview || interview.organizationId !== request.user!.organizationId!) {
       reply.code(404).send({ error: 'Interview not found' });
       return;
     }
@@ -187,7 +229,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       select: { token: true, organizationId: true }
     });
 
-    if (!interview || interview.organizationId !== request.user!.organizationId) {
+    if (!interview || interview.organizationId !== request.user!.organizationId!) {
       reply.code(404).send({ error: 'Interview not found' });
       return;
     }
@@ -203,7 +245,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       select: { token: true, organizationId: true, status: true }
     });
 
-    if (!interview || interview.organizationId !== request.user!.organizationId) {
+    if (!interview || interview.organizationId !== request.user!.organizationId!) {
       reply.code(404).send({ error: 'Interview not found' });
       return;
     }
@@ -230,7 +272,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       const interview = await prisma.interview.findFirst({
         where: {
           id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         },
         select: {
           organizationId: true,
@@ -288,7 +330,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       const interview = await prisma.interview.findFirst({
         where: {
           id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 
@@ -338,7 +380,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         where: { id: request.params.id }
       });
 
-      if (!interview || interview.organizationId !== request.user!.organizationId) {
+      if (!interview || interview.organizationId !== request.user!.organizationId!) {
         reply.code(404).send({ error: 'Interview not found' });
         return;
       }
@@ -368,7 +410,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         select: { organizationId: true }
       });
 
-      if (!interview || interview.organizationId !== request.user!.organizationId) {
+      if (!interview || interview.organizationId !== request.user!.organizationId!) {
         reply.code(404).send({ error: 'Interview not found' });
         return;
       }
@@ -389,7 +431,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         select: { organizationId: true }
       });
 
-      if (!interview || interview.organizationId !== request.user!.organizationId) {
+      if (!interview || interview.organizationId !== request.user!.organizationId!) {
         reply.code(404).send({ error: 'Interview not found' });
         return;
       }
@@ -416,7 +458,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
         where: { id }
       });
 
-      if (!interview || interview.organizationId !== request.user!.organizationId) {
+      if (!interview || interview.organizationId !== request.user!.organizationId!) {
         reply.code(404).send({ error: 'Interview not found' });
         return;
       }
@@ -448,7 +490,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       try {
         return await createBatchInterviews(
           request.body,
-          request.user!.organizationId,
+          request.user!.organizationId!,
           request.user!.id
         );
       } catch (error) {
@@ -470,7 +512,7 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       decision?: string;
     };
   }>('/api/admin/interviews/export', async (request, reply) => {
-    const buffer = await exportInterviewsToExcel(request.user!.organizationId, {
+    const buffer = await exportInterviewsToExcel(request.user!.organizationId!, {
       search: request.query.search,
       status: request.query.status as InterviewStatus,
       aiStatus: request.query.aiStatus,

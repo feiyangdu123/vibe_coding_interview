@@ -28,3 +28,23 @@ export async function authMiddleware(
 
   request.user = user;
 }
+
+export async function orgMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!request.user?.organizationId) {
+    reply.code(403).send({ error: 'Organization membership required' });
+    return;
+  }
+}
+
+export async function platformAdminMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (request.user?.role !== 'PLATFORM_ADMIN') {
+    reply.code(403).send({ error: 'Platform admin access required' });
+    return;
+  }
+}

@@ -2,11 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@vibe/database';
 import type { CreateCandidateDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, orgMiddleware } from '../../middleware/auth';
 import * as XLSX from 'xlsx';
 
 export async function candidateRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', orgMiddleware);
 
   // --- Template download (must be registered before /:id routes) ---
   fastify.get('/api/admin/candidates/import-template', async (_request, reply) => {
@@ -101,7 +102,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
     // Check which emails already exist in this organization
     const existingCandidates = await prisma.candidate.findMany({
       where: {
-        organizationId: request.user!.organizationId,
+        organizationId: request.user!.organizationId!,
         email: { in: validCandidates.map(c => c.email) }
       },
       select: { email: true }
@@ -122,7 +123,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       await prisma.candidate.createMany({
         data: toCreate.map(c => ({
           ...c,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         }))
       });
     }
@@ -141,7 +142,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       const search = request.query.search?.trim() || '';
 
       const where = {
-        organizationId: request.user!.organizationId,
+        organizationId: request.user!.organizationId!,
         ...(search
           ? {
             OR: [
@@ -184,7 +185,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       return await prisma.candidate.create({
         data: {
           ...request.body,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
     } catch (error: any) {
@@ -204,7 +205,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       const existing = await prisma.candidate.findFirst({
         where: {
           id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         },
         select: { id: true }
       });
@@ -235,7 +236,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       const candidate = await prisma.candidate.findFirst({
         where: {
           id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         },
         select: { id: true }
       });
@@ -249,7 +250,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       const interviewCount = await prisma.interview.count({
         where: {
           candidateId: id,
-          organizationId: request.user!.organizationId
+          organizationId: request.user!.organizationId!
         }
       });
 

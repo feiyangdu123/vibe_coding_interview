@@ -18,6 +18,7 @@ import { userRoutes } from './routes/admin/users';
 import { organizationApiKeyRoutes } from './routes/admin/api-keys';
 import processesRoutes from './routes/admin/processes';
 import { interviewPublicRoutes } from './routes/interview';
+import { platformRoutes } from './routes/platform';
 import { startCleanupJob } from './services/cleanup-service';
 import { migrateExpiredStatus } from './services/migration-service';
 
@@ -61,6 +62,7 @@ async function start() {
   await fastify.register(userRoutes);
   await fastify.register(organizationApiKeyRoutes);
   await fastify.register(processesRoutes);
+  await fastify.register(platformRoutes);
   await fastify.register(interviewPublicRoutes);
 
   startCleanupJob();
