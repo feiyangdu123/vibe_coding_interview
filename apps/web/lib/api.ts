@@ -18,7 +18,8 @@ export async function apiFetch(endpoint: string, options?: RequestInit) {
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     credentials: 'include', // 自动携带 cookie
-    headers
+    headers,
+    cache: 'no-store'
   });
 
   if (!res.ok) {

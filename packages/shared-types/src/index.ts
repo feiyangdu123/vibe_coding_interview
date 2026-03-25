@@ -88,21 +88,23 @@ export interface OrganizationApiKeyConfigSummary {
   name: string;
   baseUrl: string;
   apiKeyMasked: string;
+  modelId: string;
   isSelected: boolean;
   createdAt: string;
-  lastUsedAt?: string | null;
 }
 
 export interface CreateOrganizationApiKeyConfigDto {
   name: string;
   baseUrl: string;
   apiKey: string;
+  modelId: string;
 }
 
 export interface UpdateOrganizationApiKeyConfigDto {
   name: string;
   baseUrl: string;
   apiKey?: string;
+  modelId?: string;
 }
 
 export interface CreateProblemDto {

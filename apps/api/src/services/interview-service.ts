@@ -69,8 +69,10 @@ export async function getOpenCodeManager(): Promise<OpenCodeManager> {
   if (!isInitialized) {
     const activeInterviews = await prisma.interview.findMany({
       where: {
-        status: InterviewStatus.IN_PROGRESS,
-        port: { not: null }
+        OR: [
+          { status: InterviewStatus.IN_PROGRESS, port: { not: null } },
+          { status: InterviewStatus.PENDING, openCodeStatus: 'ready', port: { not: null } }
+        ]
       },
       select: { port: true }
     });
@@ -103,6 +105,53 @@ export async function withWorkspaceUrl<T extends { port: number | null | undefin
     ...interview,
     workspaceUrl
   };
+}
+
+async function startOpenCodeForInterview(interviewId: string, workDir: string, organizationId: string) {
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: { openCodeStatus: 'starting' }
+  });
+
+  try {
+    const manager = await getOpenCodeManager();
+
+    const apiKeyConfig = await prisma.organizationApiKeyConfig.findFirst({
+      where: { organizationId, isSelected: true },
+      select: { baseUrl: true, apiKey: true, modelId: true }
+    });
+
+    const { port, processId, dataDir } = await manager.startInstance(
+      interviewId,
+      workDir,
+      apiKeyConfig && apiKeyConfig.modelId
+        ? { baseUrl: apiKeyConfig.baseUrl, apiKey: apiKeyConfig.apiKey, modelId: apiKeyConfig.modelId }
+        : undefined
+    );
+
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        port,
+        processId,
+        dataDir,
+        openCodeStatus: 'ready',
+        healthStatus: 'healthy',
+        lastHealthCheck: new Date()
+      }
+    });
+
+    console.log(`OpenCode prewarmed for interview ${interviewId} on port ${port}`);
+  } catch (error) {
+    console.error(`Failed to prewarm OpenCode for interview ${interviewId}:`, error);
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        openCodeStatus: 'failed',
+        openCodeError: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+  }
 }
 
 async function upsertCandidateForOrganization(
@@ -369,7 +418,7 @@ export async function createInterview(
   const workDir = prepareInterviewWorkspace(problem.workDirTemplate, token);
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const interview = await prisma.$transaction(async (tx) => {
       let candidateId = data.candidateId;
 
       if (data.newCandidate?.name && data.newCandidate.email) {
@@ -414,6 +463,13 @@ export async function createInterview(
       await reserveQuotaForCreatedInterviews(tx, organizationId, [interview.id], createdById);
       return interview;
     });
+
+    // Fire-and-forget: async prewarm OpenCode
+    startOpenCodeForInterview(interview.id, workDir, organizationId).catch(err => {
+      console.error(`Failed to prewarm OpenCode for interview ${interview.id}:`, err);
+    });
+
+    return interview;
   } catch (error) {
     cleanupWorkDir(workDir);
     throw error;
@@ -450,7 +506,7 @@ export async function createBatchInterviews(
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const createdInterviews: InterviewWithRelations[] = [];
 
       for (const prepared of preparedInterviews) {
@@ -513,9 +569,29 @@ export async function createBatchInterviews(
             link: `${getWebPublicUrlBase()}/interview/${interview.token}`
           }
         })),
-        errors: []
+        errors: [],
+        _interviews: createdInterviews
       };
     });
+
+    // Fire-and-forget: sequentially prewarm OpenCode for each interview (avoid port pressure)
+    (async () => {
+      for (const prepared of preparedInterviews) {
+        const interview = result._interviews.find(i => i.token === prepared.token);
+        if (interview) {
+          await startOpenCodeForInterview(interview.id, prepared.workDir, organizationId).catch(err => {
+            console.error(`Failed to prewarm OpenCode for batch interview ${interview.id}:`, err);
+          });
+        }
+      }
+    })();
+
+    return {
+      success: result.success,
+      failed: result.failed,
+      results: result.results,
+      errors: result.errors
+    };
   } catch (error) {
     for (const prepared of preparedInterviews) {
       cleanupWorkDir(prepared.workDir);
@@ -552,7 +628,73 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
   const manager = await getOpenCodeManager();
 
   try {
-    const { port, host, workspaceUrl, processId, dataDir } = await manager.startInstance(interview.id, interview.workDir);
+    let port: number;
+    let host: string;
+    let workspaceUrl: string;
+    let processId: number;
+    let dataDir: string;
+    let skipLaunch = false;
+
+    if (interview.openCodeStatus === 'ready' && interview.port) {
+      // Check if the prewarmed instance is still alive
+      const instance = manager.getInstance(interview.id);
+      if (instance) {
+        port = instance.port;
+        host = instance.host;
+        workspaceUrl = instance.workspaceUrl;
+        processId = instance.processId;
+        dataDir = instance.dataDir;
+        skipLaunch = true;
+      }
+    } else if (interview.openCodeStatus === 'starting') {
+      // Poll DB for up to 30s waiting for it to become ready
+      const pollStart = Date.now();
+      while (Date.now() - pollStart < 30000) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const fresh = await prisma.interview.findUnique({
+          where: { id: interview.id },
+          select: { openCodeStatus: true, port: true, processId: true, dataDir: true }
+        });
+        if (fresh?.openCodeStatus === 'ready' && fresh.port) {
+          const instance = manager.getInstance(interview.id);
+          if (instance) {
+            port = instance.port;
+            host = instance.host;
+            workspaceUrl = instance.workspaceUrl;
+            processId = instance.processId;
+            dataDir = instance.dataDir;
+            skipLaunch = true;
+            break;
+          }
+        }
+        if (fresh?.openCodeStatus === 'failed') {
+          break;
+        }
+      }
+    }
+
+    if (!skipLaunch) {
+      // Fallback: synchronous launch (same as original logic)
+      const apiKeyConfig = await prisma.organizationApiKeyConfig.findFirst({
+        where: { organizationId: interview.organizationId, isSelected: true },
+        select: { baseUrl: true, apiKey: true, modelId: true }
+      });
+
+      const result = await manager.startInstance(
+        interview.id,
+        interview.workDir,
+        apiKeyConfig && apiKeyConfig.modelId
+          ? { baseUrl: apiKeyConfig.baseUrl, apiKey: apiKeyConfig.apiKey, modelId: apiKeyConfig.modelId }
+          : undefined
+      );
+      port = result.port;
+      host = result.host;
+      workspaceUrl = result.workspaceUrl;
+      processId = result.processId;
+      dataDir = result.dataDir;
+    }
+
+
     const startTime = new Date();
     const endTime = new Date(startTime.getTime() + interview.duration * 60000);
 
@@ -560,7 +702,7 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
       data: {
         interviewId: interview.id,
         eventType: InterviewEventType.STARTED,
-        metadata: { port, host, workspaceUrl, processId }
+        metadata: { port: port!, host: host!, workspaceUrl: workspaceUrl!, processId: processId! }
       }
     });
 
@@ -570,11 +712,12 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
         status: InterviewStatus.IN_PROGRESS,
         startTime,
         endTime,
-        port,
-        processId,
-        dataDir,
+        port: port!,
+        processId: processId!,
+        dataDir: dataDir!,
         healthStatus: 'healthy',
-        lastHealthCheck: startTime
+        lastHealthCheck: startTime,
+        openCodeStatus: 'ready'
       },
       include: {
         candidate: true,
@@ -711,6 +854,16 @@ export async function cancelPendingInterview(
     throw new Error('Only pending interviews can be cancelled');
   }
 
+  // Stop prewarmed OpenCode instance if running
+  if (interview.port || interview.openCodeStatus === 'ready') {
+    try {
+      const manager = await getOpenCodeManager();
+      await manager.stopInstance(interview.id);
+    } catch (error) {
+      console.error('Failed to stop prewarmed OpenCode instance on cancel:', error);
+    }
+  }
+
   const cancelledAt = new Date();
 
   return finalizeInterview({
@@ -722,7 +875,11 @@ export async function cancelPendingInterview(
       status: InterviewStatus.CANCELLED,
       cancelledAt,
       endReason: EndReason.CANCELLED_BY_ORG,
-      aiEvaluationStatus: null
+      aiEvaluationStatus: null,
+      port: null,
+      processId: null,
+      openCodeStatus: null,
+      openCodeError: null
     },
     quotaAction: 'release',
     quotaReason: InterviewQuotaLedgerReason.INTERVIEW_CANCELLED,
@@ -743,6 +900,16 @@ export async function markInterviewAsNoShow(interviewId: string) {
     return interview;
   }
 
+  // Stop prewarmed OpenCode instance if running
+  if (interview.port || interview.openCodeStatus === 'ready') {
+    try {
+      const manager = await getOpenCodeManager();
+      await manager.stopInstance(interview.id);
+    } catch (error) {
+      console.error('Failed to stop prewarmed OpenCode instance on no-show:', error);
+    }
+  }
+
   const cancelledAt = new Date();
 
   return finalizeInterview({
@@ -758,7 +925,11 @@ export async function markInterviewAsNoShow(interviewId: string) {
       status: InterviewStatus.CANCELLED,
       cancelledAt,
       endReason: EndReason.CANDIDATE_NO_SHOW,
-      aiEvaluationStatus: null
+      aiEvaluationStatus: null,
+      port: null,
+      processId: null,
+      openCodeStatus: null,
+      openCodeError: null
     },
     quotaAction: 'release',
     quotaReason: InterviewQuotaLedgerReason.CANDIDATE_NO_SHOW

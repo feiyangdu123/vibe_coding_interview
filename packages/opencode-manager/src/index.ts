@@ -31,6 +31,12 @@ export interface LaunchConfig {
   workDir: string;
 }
 
+export interface ApiKeyConfig {
+  baseUrl: string;
+  apiKey: string;
+  modelId: string;
+}
+
 function getWorkspaceProtocol(host: string): 'http' | 'https' {
   if (host === 'localhost' || host === '127.0.0.1') {
     return 'http';
@@ -183,7 +189,7 @@ export class OpenCodeManager {
     });
   }
 
-  async startInstance(interviewId: string, workDir: string): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string }> {
+  async startInstance(interviewId: string, workDir: string, apiKeyConfig?: ApiKeyConfig): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string }> {
     if (this.instances.has(interviewId)) {
       const existing = this.instances.get(interviewId)!;
       return {
@@ -201,6 +207,40 @@ export class OpenCodeManager {
 
     // Create unique data directory for this interview
     fs.mkdirSync(dataDir, { recursive: true });
+
+    // Write OpenCode config files if API key config is provided
+    if (apiKeyConfig) {
+      // Write auth.json to {dataDir}/opencode/auth.json
+      const authDir = path.join(dataDir, 'opencode');
+      fs.mkdirSync(authDir, { recursive: true });
+      const authJson = {
+        custom: {
+          type: 'api',
+          key: apiKeyConfig.apiKey
+        }
+      };
+      fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(authJson, null, 2));
+
+      // Write opencode.json to {workDir}/opencode.json
+      const opencodeJson = {
+        '$schema': 'https://opencode.ai/config.json',
+        provider: {
+          custom: {
+            npm: '@ai-sdk/openai-compatible',
+            name: 'Custom Provider',
+            options: {
+              baseURL: apiKeyConfig.baseUrl
+            },
+            models: {
+              [apiKeyConfig.modelId]: {
+                name: apiKeyConfig.modelId
+              }
+            }
+          }
+        }
+      };
+      fs.writeFileSync(path.join(workDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
+    }
 
     const child = spawn(this.opencodePath, [
       'serve',

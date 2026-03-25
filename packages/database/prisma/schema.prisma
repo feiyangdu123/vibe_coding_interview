@@ -103,8 +103,8 @@ model OrganizationApiKeyConfig {
   name           String
   baseUrl        String
   apiKey         String   @db.Text
+  modelId        String   @default("")
   isSelected     Boolean  @default(false)
-  lastUsedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -112,7 +112,6 @@ model OrganizationApiKeyConfig {
 
   @@index([organizationId])
   @@index([organizationId, isSelected])
-  @@index([lastUsedAt])
 }
 
 model User {
@@ -277,6 +276,10 @@ model Interview {
   // Phase 4: 新增字段
   currentAiRunId String? // 当前生效的评估版本 ID
   finalDecision  String? // 'pass' | 'fail' | 'pending'
+
+  // OpenCode 预热字段
+  openCodeStatus    String?   // null | 'starting' | 'ready' | 'failed'
+  openCodeError     String?   @db.Text
 
   // AI 聊天镜像字段
   aiChatMirrorSourceSessionId     String?

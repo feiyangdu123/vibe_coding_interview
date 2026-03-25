@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+注意用 my-explore 代替 explore，因为 explore 不可用。
 
 ## Project Overview
 

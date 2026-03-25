@@ -61,7 +61,8 @@ export type OrganizationUserFormData = z.infer<typeof organizationUserSchema>
 export const organizationApiKeyConfigCreateSchema = z.object({
   name: z.string().min(1, "名称不能为空").max(100, "名称过长"),
   baseUrl: z.string().url("Base URL 格式不正确").max(500, "Base URL 过长"),
-  apiKey: z.string().min(1, "API Key 不能为空").max(5000, "API Key 过长")
+  apiKey: z.string().min(1, "API Key 不能为空").max(5000, "API Key 过长"),
+  modelId: z.string().min(1, "模型 ID 不能为空").max(200, "模型 ID 过长")
 })
 
 export type OrganizationApiKeyConfigCreateFormData = z.infer<typeof organizationApiKeyConfigCreateSchema>
@@ -69,7 +70,8 @@ export type OrganizationApiKeyConfigCreateFormData = z.infer<typeof organization
 export const organizationApiKeyConfigUpdateSchema = z.object({
   name: z.string().min(1, "名称不能为空").max(100, "名称过长"),
   baseUrl: z.string().url("Base URL 格式不正确").max(500, "Base URL 过长"),
-  apiKey: z.string().max(5000, "API Key 过长").optional()
+  apiKey: z.string().max(5000, "API Key 过长").optional(),
+  modelId: z.string().min(1, "模型 ID 不能为空").max(200, "模型 ID 过长").optional()
 })
 
 export type OrganizationApiKeyConfigUpdateFormData = z.infer<typeof organizationApiKeyConfigUpdateSchema>

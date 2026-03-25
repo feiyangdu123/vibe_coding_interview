@@ -63,18 +63,18 @@ function toSummary(config: {
   name: string;
   baseUrl: string;
   apiKey: string;
+  modelId: string;
   isSelected: boolean;
   createdAt: Date;
-  lastUsedAt: Date | null;
 }) {
   return {
     id: config.id,
     name: config.name,
     baseUrl: config.baseUrl,
     apiKeyMasked: maskApiKey(config.apiKey),
+    modelId: config.modelId,
     isSelected: config.isSelected,
     createdAt: config.createdAt.toISOString(),
-    lastUsedAt: config.lastUsedAt?.toISOString() ?? null
   };
 }
 
@@ -152,6 +152,7 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
             name,
             baseUrl,
             apiKey,
+            modelId: (request.body.modelId || '').trim(),
             isSelected: shouldSelect
           }
         });
@@ -208,7 +209,8 @@ export async function organizationApiKeyRoutes(fastify: FastifyInstance) {
         data: {
           name,
           baseUrl,
-          ...(nextApiKey ? { apiKey: nextApiKey } : {})
+          ...(nextApiKey ? { apiKey: nextApiKey } : {}),
+          ...(request.body.modelId !== undefined ? { modelId: request.body.modelId.trim() } : {})
         }
       });
 

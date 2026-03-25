@@ -25,23 +25,16 @@ interface OrganizationApiKeyConfig {
   name: string
   baseUrl: string
   apiKeyMasked: string
+  modelId: string
   isSelected: boolean
   createdAt: string
-  lastUsedAt?: string | null
 }
 
 const emptyForm = {
   name: '',
   baseUrl: '',
-  apiKey: ''
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) {
-    return '未使用'
-  }
-
-  return new Date(value).toLocaleString()
+  apiKey: '',
+  modelId: ''
 }
 
 export default function OrganizationApiKeysSettingsPage() {
@@ -88,7 +81,8 @@ export default function OrganizationApiKeysSettingsPage() {
     setForm({
       name: config.name,
       baseUrl: config.baseUrl,
-      apiKey: ''
+      apiKey: '',
+      modelId: config.modelId || ''
     })
     setDialogOpen(true)
   }
@@ -123,6 +117,7 @@ export default function OrganizationApiKeysSettingsPage() {
           body: JSON.stringify({
             name: form.name.trim(),
             baseUrl: form.baseUrl.trim(),
+            modelId: form.modelId.trim(),
             ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {})
           })
         }
@@ -239,8 +234,8 @@ export default function OrganizationApiKeysSettingsPage() {
             <CardTitle className="text-lg">说明</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-gray-600">
-            <p>支持在企业下维护多套 API 配置，但同一时刻只会有一个“当前使用”配置。</p>
-            <p>当前仅做配置管理和切换，暂未真正透传到 OpenCode Runtime。</p>
+            <p>支持在企业下维护多套 API 配置，但同一时刻只会有一个”当前使用”配置。</p>
+            <p>当前选中的配置会在启动面试时自动透传到 OpenCode Runtime。</p>
           </CardContent>
         </Card>
       </div>
@@ -261,9 +256,8 @@ export default function OrganizationApiKeysSettingsPage() {
               <TableRow>
                 <TableHead>名称</TableHead>
                 <TableHead>Base URL</TableHead>
+                <TableHead>模型 ID</TableHead>
                 <TableHead>API Key</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead>上次使用时间</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>操作</TableHead>
               </TableRow>
@@ -271,7 +265,7 @@ export default function OrganizationApiKeysSettingsPage() {
             <TableBody>
               {configs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                     暂无 API Key 配置，点击“新增配置”创建第一套企业级连接信息。
                   </TableCell>
                 </TableRow>
@@ -279,32 +273,35 @@ export default function OrganizationApiKeysSettingsPage() {
                 configs.map((config) => (
                   <TableRow key={config.id}>
                     <TableCell className="font-medium">{config.name}</TableCell>
-                    <TableCell className="max-w-[240px] break-all">{config.baseUrl}</TableCell>
+                    <TableCell className="max-w-[200px] truncate">{config.baseUrl}</TableCell>
+                    <TableCell className="font-mono text-xs">{config.modelId || '-'}</TableCell>
                     <TableCell className="font-mono text-xs">{config.apiKeyMasked}</TableCell>
-                    <TableCell>{formatDateTime(config.createdAt)}</TableCell>
-                    <TableCell>{formatDateTime(config.lastUsedAt)}</TableCell>
                     <TableCell>
-                      <Badge variant={config.isSelected ? 'success' : 'secondary'}>
-                        {config.isSelected ? '当前使用' : '可切换'}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={config.isSelected ? 'success' : 'secondary'}>
+                          {config.isSelected ? '当前使用' : '可切换'}
+                        </Badge>
+                        {!config.isSelected && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={switchingId === config.id}
+                            onClick={() => handleSelect(config.id)}
+                          >
+                            {switchingId === config.id ? '切换中...' : '设为当前'}
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell className="space-x-2">
-                      {!config.isSelected && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={switchingId === config.id}
-                          onClick={() => handleSelect(config.id)}
-                        >
-                          {switchingId === config.id ? '切换中...' : '设为当前'}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openEditDialog(config)}>
+                          编辑
                         </Button>
-                      )}
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(config)}>
-                        编辑
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(config)}>
-                        删除
-                      </Button>
+                        <Button variant="destructive" size="sm" onClick={() => handleDelete(config)}>
+                          删除
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -327,7 +324,7 @@ export default function OrganizationApiKeysSettingsPage() {
                 <Input
                   value={form.name}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder="例如：OpenAI Production"
+                  placeholder="例如：智谱 api"
                   required
                 />
               </div>
@@ -356,6 +353,18 @@ export default function OrganizationApiKeysSettingsPage() {
                     当前存量值会继续保留，只有填写新值时才会覆盖。
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">模型 ID</label>
+                <Input
+                  value={form.modelId}
+                  onChange={(e) => setForm((prev) => ({ ...prev, modelId: e.target.value }))}
+                  placeholder="例如：glm-5"
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  填写模型标识符，启动面试时会透传给 OpenCode。
+                </p>
               </div>
             </div>
 
