@@ -50,7 +50,7 @@ export default function InterviewsPage() {
   })
 
   const loadInterviews = () => {
-    fetch('http://localhost:3001/api/admin/interviews')
+    fetch('/api/admin/interviews')
       .then(res => res.json())
       .then(data => {
         setInterviews(data)
@@ -66,12 +66,12 @@ export default function InterviewsPage() {
     loadInterviews()
 
     // Load candidates and problems for the form
-    fetch('http://localhost:3001/api/admin/candidates')
+    fetch('/api/admin/candidates')
       .then(res => res.json())
       .then(data => setCandidates(data))
       .catch(err => console.error(err))
 
-    fetch('http://localhost:3001/api/admin/problems')
+    fetch('/api/admin/problems')
       .then(res => res.json())
       .then(data => setProblems(data))
       .catch(err => console.error(err))
@@ -97,7 +97,7 @@ export default function InterviewsPage() {
     setSubmitting(true)
 
     try {
-      const res = await fetch('http://localhost:3001/api/admin/interviews', {
+      const res = await fetch('/api/admin/interviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -138,7 +138,7 @@ export default function InterviewsPage() {
     if (!deletingInterviewId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/interviews/${deletingInterviewId}`, {
+      const res = await fetch(`/api/admin/interviews/${deletingInterviewId}`, {
         method: 'DELETE'
       })
 

@@ -182,7 +182,7 @@ export default function CandidatesPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const res = await fetch('http://localhost:3001/api/admin/candidates/batch', {
+      const res = await fetch('/api/admin/candidates/batch', {
         method: 'POST',
         credentials: 'include',
         body: formData

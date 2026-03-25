@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { getInterviewByToken, startInterview, submitInterview, endInterviewByInterviewer, getInterviewEvents } from '../services/interview-service';
+import {
+  getInterviewByToken,
+  startInterview,
+  submitInterview,
+  endInterviewByInterviewer,
+  getInterviewEvents,
+  withWorkspaceUrl,
+  getWorkspaceUrlForPort
+} from '../services/interview-service';
 
 export async function interviewPublicRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { token: string } }>('/api/interview/:token', async (request, reply) => {
@@ -7,13 +15,13 @@ export async function interviewPublicRoutes(fastify: FastifyInstance) {
     if (!interview) {
       return reply.code(404).send({ error: 'Interview not found' });
     }
-    return interview;
+    return withWorkspaceUrl(interview);
   });
 
   fastify.post<{ Params: { token: string } }>('/api/interview/:token/start', async (request, reply) => {
     try {
       const interview = await startInterview(request.params.token);
-      return interview;
+      return withWorkspaceUrl(interview);
     } catch (error) {
       const errorMessage = (error as Error).message;
       fastify.log.error({ error: errorMessage, token: request.params.token }, 'Failed to start interview');
@@ -26,11 +34,13 @@ export async function interviewPublicRoutes(fastify: FastifyInstance) {
     if (!interview) {
       return reply.code(404).send({ error: 'Interview not found' });
     }
+    const workspaceUrl = await getWorkspaceUrlForPort(interview.port);
     return {
       status: interview.status,
       startTime: interview.startTime,
       endTime: interview.endTime,
-      port: interview.port
+      port: interview.port,
+      workspaceUrl
     };
   });
 

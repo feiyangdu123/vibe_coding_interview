@@ -1,8 +1,9 @@
 import type { TriggerEvaluationResponse } from '@vibe/shared-types';
 
+const INTERNAL_API_BASE_URL = (process.env.INTERNAL_API_BASE_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
 const API_BASE = typeof window !== 'undefined'
-  ? `${window.location.protocol}//${window.location.hostname}:3001`
-  : 'http://localhost:3001';
+  ? ''
+  : INTERNAL_API_BASE_URL;
 
 export async function apiFetch(endpoint: string, options?: RequestInit) {
   const headers: Record<string, string> = {

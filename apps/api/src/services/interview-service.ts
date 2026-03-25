@@ -38,6 +38,10 @@ type PreparedInterview = {
   };
 };
 
+function getWebPublicUrlBase(): string {
+  return (process.env.WEB_PUBLIC_URL || process.env.WEB_URL || 'http://localhost:3000').replace(/\/$/, '');
+}
+
 function parseScheduledStartAt(value: string): Date {
   const scheduledStartAt = new Date(value);
 
@@ -79,6 +83,25 @@ export async function getOpenCodeManager(): Promise<OpenCodeManager> {
   }
 
   return openCodeManagerInstance;
+}
+
+export async function getWorkspaceUrlForPort(port: number | null | undefined): Promise<string | undefined> {
+  if (typeof port !== 'number') {
+    return undefined;
+  }
+
+  const manager = await getOpenCodeManager();
+  return manager.getWorkspaceUrl(port);
+}
+
+export async function withWorkspaceUrl<T extends { port: number | null | undefined }>(
+  interview: T
+): Promise<T & { workspaceUrl?: string }> {
+  const workspaceUrl = await getWorkspaceUrlForPort(interview.port);
+  return {
+    ...interview,
+    workspaceUrl
+  };
 }
 
 async function upsertCandidateForOrganization(
@@ -475,7 +498,7 @@ export async function createBatchInterviews(
           interview: {
             id: interview.id,
             token: interview.token,
-            link: `${process.env.WEB_URL || 'http://localhost:3000'}/interview/${interview.token}`
+            link: `${getWebPublicUrlBase()}/interview/${interview.token}`
           }
         })),
         errors: []
@@ -517,7 +540,7 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
   const manager = await getOpenCodeManager();
 
   try {
-    const { port, processId, dataDir } = await manager.startInstance(interview.id, interview.workDir);
+    const { port, host, workspaceUrl, processId, dataDir } = await manager.startInstance(interview.id, interview.workDir);
     const startTime = new Date();
     const endTime = new Date(startTime.getTime() + interview.duration * 60000);
 
@@ -525,7 +548,7 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
       data: {
         interviewId: interview.id,
         eventType: InterviewEventType.STARTED,
-        metadata: { port, processId }
+        metadata: { port, host, workspaceUrl, processId }
       }
     });
 

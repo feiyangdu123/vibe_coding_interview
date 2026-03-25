@@ -11,7 +11,7 @@ interface CandidateWorkspacePanelProps {
   problemRequirements: string
   candidateName: string
   endTime: string
-  port?: number
+  workspaceUrl?: string
   token: string
   onSubmit: () => void
 }
@@ -22,7 +22,7 @@ export function CandidateWorkspacePanel({
   problemRequirements,
   candidateName,
   endTime,
-  port,
+  workspaceUrl,
   token,
   onSubmit
 }: CandidateWorkspacePanelProps) {
@@ -53,7 +53,7 @@ export function CandidateWorkspacePanel({
   const handleSubmit = useCallback(async () => {
     setSubmitting(true)
     try {
-      const res = await fetch(`http://localhost:3001/api/interview/${token}/submit`, {
+      const res = await fetch(`/api/interview/${token}/submit`, {
         method: 'POST'
       })
       if (!res.ok) {
@@ -110,10 +110,10 @@ export function CandidateWorkspacePanel({
             </div>
 
             <div className="flex flex-wrap gap-3 pt-2">
-              {port && (
+              {workspaceUrl && (
                 <Button
                   size="lg"
-                  onClick={() => window.open(`http://localhost:${port}`, '_blank')}
+                  onClick={() => window.open(workspaceUrl, '_blank', 'noopener,noreferrer')}
                 >
                   打开编程环境
                 </Button>

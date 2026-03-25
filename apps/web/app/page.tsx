@@ -8,7 +8,7 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/auth/me', { credentials: 'include' })
+    fetch('/api/auth/me', { credentials: 'include' })
       .then((res) => {
         if (res.ok) {
           router.push('/admin')

@@ -37,7 +37,7 @@ export default function ProblemsPage() {
   })
 
   const loadProblems = () => {
-    fetch('http://localhost:3001/api/admin/problems')
+    fetch('/api/admin/problems')
       .then(res => res.json())
       .then(data => {
         setProblems(data)
@@ -85,8 +85,8 @@ export default function ProblemsPage() {
 
     try {
       const url = editingProblem
-        ? `http://localhost:3001/api/admin/problems/${editingProblem.id}`
-        : 'http://localhost:3001/api/admin/problems'
+        ? `/api/admin/problems/${editingProblem.id}`
+        : '/api/admin/problems'
 
       const method = editingProblem ? 'PUT' : 'POST'
 
@@ -120,7 +120,7 @@ export default function ProblemsPage() {
     if (!deletingProblemId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/problems/${deletingProblemId}`, {
+      const res = await fetch(`/api/admin/problems/${deletingProblemId}`, {
         method: 'DELETE'
       })
 

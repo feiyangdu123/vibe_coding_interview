@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const INTERNAL_API_BASE_URL = (process.env.INTERNAL_API_BASE_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
+
 export async function middleware(request: NextRequest) {
   // 保护 /admin 路由
   if (request.nextUrl.pathname.startsWith('/admin')) {
@@ -12,7 +14,7 @@ export async function middleware(request: NextRequest) {
 
     // 验证 session
     try {
-      const res = await fetch('http://localhost:3001/api/auth/me', {
+      const res = await fetch(`${INTERNAL_API_BASE_URL}/api/auth/me`, {
         headers: {
           Cookie: `sessionToken=${sessionToken}`
         }

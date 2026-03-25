@@ -31,7 +31,7 @@ export default function CandidatesPage() {
   })
 
   const loadCandidates = () => {
-    fetch('http://localhost:3001/api/admin/candidates')
+    fetch('/api/admin/candidates')
       .then(res => res.json())
       .then(data => {
         setCandidates(data)
@@ -69,8 +69,8 @@ export default function CandidatesPage() {
 
     try {
       const url = editingCandidate
-        ? `http://localhost:3001/api/admin/candidates/${editingCandidate.id}`
-        : 'http://localhost:3001/api/admin/candidates'
+        ? `/api/admin/candidates/${editingCandidate.id}`
+        : '/api/admin/candidates'
 
       const method = editingCandidate ? 'PUT' : 'POST'
 
@@ -108,7 +108,7 @@ export default function CandidatesPage() {
     if (!deletingCandidateId) return
 
     try {
-      const res = await fetch(`http://localhost:3001/api/admin/candidates/${deletingCandidateId}`, {
+      const res = await fetch(`/api/admin/candidates/${deletingCandidateId}`, {
         method: 'DELETE'
       })
 

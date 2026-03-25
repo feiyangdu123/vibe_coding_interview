@@ -89,8 +89,10 @@ Required in `.env` at project root (loaded by `apps/api/src/server.ts` via doten
 DATABASE_URL="postgresql://postgres:password@localhost:5432/vibe_interview"
 API_PORT=3001
 WEB_PORT=3000
-OPENCODE_PORT_MIN=4100
-OPENCODE_PORT_MAX=4200
+WEB_PUBLIC_URL=https://demo.example.com
+INTERNAL_API_BASE_URL=http://127.0.0.1:3001
+OPENCODE_BIND_HOST=127.0.0.1
+OPENCODE_SLOTS=oc1.example.com:4100,oc2.example.com:4101,oc3.example.com:4102,oc4.example.com:4103,oc5.example.com:4104
 OPENCODE_PATH=/path/to/opencode    # Must be installed and available
 EVALUATION_TIMEOUT=1200000
 MAX_EVALUATION_RETRIES=2

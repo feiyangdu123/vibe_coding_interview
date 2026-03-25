@@ -5,8 +5,12 @@ import * as net from 'net';
 import * as http from 'http';
 import * as fs from 'fs';
 
+const DEFAULT_OPENCODE_SLOTS = 'localhost:4100,localhost:4101,localhost:4102,localhost:4103,localhost:4104';
+
 export interface InstanceInfo {
   interviewId: string;
+  host: string;
+  workspaceUrl: string;
   port: number;
   processId: number;
   process: ChildProcess;
@@ -15,25 +19,109 @@ export interface InstanceInfo {
   startedAt: Date;
 }
 
+interface OpenCodeSlot {
+  host: string;
+  port: number;
+  workspaceUrl: string;
+}
+
 export interface LaunchConfig {
   interviewId: string;
   port: number;
   workDir: string;
 }
 
-class PortManager {
-  private readonly MIN_PORT = 4100;
-  private readonly MAX_PORT = 4200;
+function getWorkspaceProtocol(host: string): 'http' | 'https' {
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http';
+  }
+
+  const publicUrl = process.env.WEB_PUBLIC_URL || process.env.WEB_URL;
+  if (publicUrl) {
+    try {
+      return new URL(publicUrl).protocol === 'http:' ? 'http' : 'https';
+    } catch {
+      // Fall through to the default protocol below.
+    }
+  }
+
+  return 'https';
+}
+
+function buildWorkspaceUrl(host: string): string {
+  if (/^https?:\/\//.test(host)) {
+    return host;
+  }
+
+  return `${getWorkspaceProtocol(host)}://${host}`;
+}
+
+function getCapacityExceededError(slotCount: number): string {
+  return `当前演示环境已满，最多同时支持 ${slotCount} 场进行中的面试`;
+}
+
+function parseSlots(rawSlots: string | undefined): OpenCodeSlot[] {
+  const source = rawSlots?.trim() || DEFAULT_OPENCODE_SLOTS;
+  const seenPorts = new Set<number>();
+
+  return source.split(',').map((entry) => {
+    const trimmedEntry = entry.trim();
+    const separatorIndex = trimmedEntry.lastIndexOf(':');
+
+    if (separatorIndex <= 0 || separatorIndex === trimmedEntry.length - 1) {
+      throw new Error(`Invalid OPENCODE_SLOTS entry "${trimmedEntry}". Expected format "host:port".`);
+    }
+
+    const host = trimmedEntry.slice(0, separatorIndex).trim();
+    const port = Number(trimmedEntry.slice(separatorIndex + 1));
+
+    if (!host) {
+      throw new Error(`Invalid OPENCODE_SLOTS entry "${trimmedEntry}". Host is required.`);
+    }
+
+    if (!Number.isInteger(port) || port <= 0) {
+      throw new Error(`Invalid OPENCODE_SLOTS entry "${trimmedEntry}". Port must be a positive integer.`);
+    }
+
+    if (seenPorts.has(port)) {
+      throw new Error(`Duplicate OpenCode slot port detected: ${port}`);
+    }
+
+    seenPorts.add(port);
+
+    return {
+      host,
+      port,
+      workspaceUrl: buildWorkspaceUrl(host)
+    };
+  });
+}
+
+class SlotManager {
+  private readonly slots: OpenCodeSlot[];
+  private readonly bindHost: string;
   private usedPorts: Set<number> = new Set();
 
-  async allocate(): Promise<number> {
-    for (let port = this.MIN_PORT; port <= this.MAX_PORT; port++) {
-      if (!this.usedPorts.has(port) && await this.isPortAvailable(port)) {
-        this.usedPorts.add(port);
-        return port;
+  constructor(slots: OpenCodeSlot[], bindHost: string) {
+    this.slots = slots;
+    this.bindHost = bindHost;
+  }
+
+  async allocate(): Promise<OpenCodeSlot> {
+    const availableSlots = this.slots.filter((slot) => !this.usedPorts.has(slot.port));
+
+    if (availableSlots.length === 0) {
+      throw new Error(getCapacityExceededError(this.slots.length));
+    }
+
+    for (const slot of availableSlots) {
+      if (await this.isPortAvailable(slot.port)) {
+        this.usedPorts.add(slot.port);
+        return slot;
       }
     }
-    throw new Error('No available ports in range 4100-4200');
+
+    throw new Error('No available OpenCode slot ports on the configured bind host');
   }
 
   private async isPortAvailable(port: number): Promise<boolean> {
@@ -49,7 +137,7 @@ class PortManager {
         resolve(true);
       });
 
-      server.listen(port, '127.0.0.1');
+      server.listen(port, this.bindHost);
     });
   }
 
@@ -58,17 +146,30 @@ class PortManager {
   }
 
   markUsed(port: number): void {
+    if (!this.getSlotByPort(port)) {
+      console.warn(`[OpenCodeManager] Ignoring active port ${port} because it is not defined in OPENCODE_SLOTS.`);
+      return;
+    }
+
     this.usedPorts.add(port);
+  }
+
+  getSlotByPort(port: number): OpenCodeSlot | undefined {
+    return this.slots.find((slot) => slot.port === port);
   }
 }
 
 export class OpenCodeManager {
-  private portManager: PortManager;
+  private slotManager: SlotManager;
   private instances: Map<string, InstanceInfo>;
   private opencodePath: string;
+  private bindHost: string;
+  private healthCheckHost: string;
 
   constructor(opencodePath: string = 'opencode') {
-    this.portManager = new PortManager();
+    this.bindHost = process.env.OPENCODE_BIND_HOST || '127.0.0.1';
+    this.healthCheckHost = this.bindHost === '0.0.0.0' ? '127.0.0.1' : this.bindHost;
+    this.slotManager = new SlotManager(parseSlots(process.env.OPENCODE_SLOTS), this.bindHost);
     this.instances = new Map();
     this.opencodePath = opencodePath;
   }
@@ -78,17 +179,23 @@ export class OpenCodeManager {
    */
   initializeWithActivePorts(activePorts: number[]): void {
     activePorts.forEach(port => {
-      this.portManager.markUsed(port);
+      this.slotManager.markUsed(port);
     });
   }
 
-  async startInstance(interviewId: string, workDir: string): Promise<{ port: number; processId: number; dataDir: string }> {
+  async startInstance(interviewId: string, workDir: string): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string }> {
     if (this.instances.has(interviewId)) {
       const existing = this.instances.get(interviewId)!;
-      return { port: existing.port, processId: existing.processId, dataDir: existing.dataDir };
+      return {
+        host: existing.host,
+        workspaceUrl: existing.workspaceUrl,
+        port: existing.port,
+        processId: existing.processId,
+        dataDir: existing.dataDir
+      };
     }
 
-    const port = await this.portManager.allocate();
+    const slot = await this.slotManager.allocate();
     const homeDir = os.homedir();
     const dataDir = path.join(homeDir, '.local', 'share', `opencode-${interviewId}`);
 
@@ -97,8 +204,8 @@ export class OpenCodeManager {
 
     const child = spawn(this.opencodePath, [
       'serve',
-      '--port', port.toString(),
-      '--hostname', '127.0.0.1'
+      '--port', slot.port.toString(),
+      '--hostname', this.bindHost
     ], {
       env: { ...process.env, XDG_DATA_HOME: dataDir },
       cwd: workDir,
@@ -110,7 +217,7 @@ export class OpenCodeManager {
       console.error('Failed to spawn OpenCode:', error);
       console.error('Path:', this.opencodePath);
       console.error('WorkDir:', workDir);
-      this.portManager.release(port);
+      this.slotManager.release(slot.port);
     });
 
     child.stderr?.on('data', (data) => {
@@ -122,13 +229,15 @@ export class OpenCodeManager {
     });
 
     if (!child.pid) {
-      this.portManager.release(port);
+      this.slotManager.release(slot.port);
       throw new Error('Failed to start OpenCode instance');
     }
 
     const instanceInfo: InstanceInfo = {
       interviewId,
-      port,
+      host: slot.host,
+      workspaceUrl: slot.workspaceUrl,
+      port: slot.port,
       processId: child.pid,
       process: child,
       workDir,
@@ -140,11 +249,11 @@ export class OpenCodeManager {
 
     child.on('exit', () => {
       this.instances.delete(interviewId);
-      this.portManager.release(port);
+      this.slotManager.release(slot.port);
     });
 
     // Wait for health check
-    const isHealthy = await this.waitForHealthy(port);
+    const isHealthy = await this.waitForHealthy(slot.port);
     if (!isHealthy) {
       // Cleanup on failure
       try {
@@ -153,11 +262,17 @@ export class OpenCodeManager {
         // Ignore
       }
       this.instances.delete(interviewId);
-      this.portManager.release(port);
-      throw new Error(`OpenCode instance failed to start on port ${port}`);
+      this.slotManager.release(slot.port);
+      throw new Error(`OpenCode instance failed to start on port ${slot.port}`);
     }
 
-    return { port, processId: child.pid, dataDir };
+    return {
+      host: slot.host,
+      workspaceUrl: slot.workspaceUrl,
+      port: slot.port,
+      processId: child.pid,
+      dataDir
+    };
   }
 
   async stopInstance(interviewId: string): Promise<void> {
@@ -173,7 +288,7 @@ export class OpenCodeManager {
     }
 
     this.instances.delete(interviewId);
-    this.portManager.release(instance.port);
+    this.slotManager.release(instance.port);
   }
 
   async cleanupExpired(): Promise<void> {
@@ -188,9 +303,17 @@ export class OpenCodeManager {
     return Array.from(this.instances.values());
   }
 
+  getHost(port: number): string | undefined {
+    return this.slotManager.getSlotByPort(port)?.host;
+  }
+
+  getWorkspaceUrl(port: number): string | undefined {
+    return this.slotManager.getSlotByPort(port)?.workspaceUrl;
+  }
+
   async checkHealth(port: number): Promise<boolean> {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${port}/`, { timeout: 2000 }, (res) => {
+      const req = http.get(`http://${this.healthCheckHost}:${port}/`, { timeout: 2000 }, (res) => {
         resolve(res.statusCode === 200);
       });
 

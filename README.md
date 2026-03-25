@@ -48,6 +48,25 @@ pnpm dev
 - API 后端: http://localhost:3001
 - 管理后台: http://localhost:3000/admin
 
+## 公网演示部署
+
+适合 5 个候选人并发演示的默认部署形态：
+
+- `demo.example.com` -> Next.js Web (`127.0.0.1:3000`)
+- `demo.example.com/api/*` -> Fastify API (`127.0.0.1:3001`)
+- `oc1.example.com` 到 `oc5.example.com` -> 5 个固定 OpenCode 槽位 (`127.0.0.1:4100` 到 `127.0.0.1:4104`)
+
+核心环境变量：
+
+```bash
+WEB_PUBLIC_URL=https://demo.example.com
+INTERNAL_API_BASE_URL=http://127.0.0.1:3001
+OPENCODE_BIND_HOST=127.0.0.1
+OPENCODE_SLOTS=oc1.example.com:4100,oc2.example.com:4101,oc3.example.com:4102,oc4.example.com:4103,oc5.example.com:4104
+```
+
+Nginx 反向代理示例见 `deploy/nginx.conf.example`。
+
 ## 项目结构
 
 ```

@@ -17,6 +17,7 @@ interface Interview {
   submittedAt?: string
   endReason?: string
   port?: number
+  workspaceUrl?: string
   duration: number
   workDir?: string
   candidate: {
@@ -38,7 +39,7 @@ export default function InterviewPage() {
   const [loading, setLoading] = useState(true)
 
   const fetchInterview = () => {
-    fetch(`http://localhost:3001/api/interview/${token}`)
+    fetch(`/api/interview/${token}`)
       .then(res => res.json())
       .then(data => {
         setInterview(data)
@@ -56,7 +57,7 @@ export default function InterviewPage() {
 
   const handleStart = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/interview/${token}/start`, {
+      const res = await fetch(`/api/interview/${token}/start`, {
         method: 'POST'
       })
       const data = await res.json()
@@ -66,8 +67,8 @@ export default function InterviewPage() {
         return
       }
       setInterview(data)
-      if (data.port) {
-        window.open(`http://localhost:${data.port}`, '_blank')
+      if (data.workspaceUrl) {
+        window.open(data.workspaceUrl, '_blank', 'noopener,noreferrer')
       }
     } catch (err) {
       console.error('Start interview exception:', err)
@@ -126,7 +127,7 @@ export default function InterviewPage() {
         problemRequirements={interview.problem.requirements}
         candidateName={interview.candidate.name}
         endTime={interview.endTime}
-        port={interview.port}
+        workspaceUrl={interview.workspaceUrl}
         token={token}
         onSubmit={handleSubmit}
       />

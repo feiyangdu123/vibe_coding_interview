@@ -206,8 +206,13 @@ export async function evaluateInterview(
         return;
       }
 
+      const sessionId = chatHistoryResponse.sessionId;
+      if (!sessionId) {
+        throw new Error('Chat history session ID is missing');
+      }
+
       // 格式化聊天历史 - 提取文本内容
-      const formattedHistory = chatHistory
+      const formattedHistory = chatHistoryResponse.messages
         .map((msg, idx) => {
           const textParts = msg.parts
             .filter(part => part.type === 'text' || part.type === 'reasoning')
@@ -245,7 +250,7 @@ export async function evaluateInterview(
         prompt,
         evaluationSnapshot.workDir,
         evaluationSnapshot.dataDir,
-        chatHistoryResponse.sessionId,
+        sessionId,
         EVALUATION_TIMEOUT
       );
 
