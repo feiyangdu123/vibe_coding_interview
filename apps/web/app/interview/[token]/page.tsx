@@ -21,6 +21,7 @@ interface Interview {
   workspaceUrl?: string
   duration: number
   workDir?: string
+  positionName?: string
   candidate: {
     name: string
     email: string
@@ -110,6 +111,7 @@ export default function InterviewPage() {
         problemTitle={interview.problem.title}
         duration={interview.duration}
         candidateName={interview.candidate.name}
+        positionName={interview.positionName}
         scheduledStartAt={interview.scheduledStartAt}
         joinWindowOpensAt={interview.joinWindowOpensAt}
         joinDeadlineAt={interview.joinDeadlineAt}
@@ -127,6 +129,7 @@ export default function InterviewPage() {
         problemDescription={interview.problem.description}
         problemRequirements={interview.problem.requirements}
         candidateName={interview.candidate.name}
+        positionName={interview.positionName}
         endTime={interview.endTime}
         workspaceUrl={interview.workspaceUrl}
         token={token}
@@ -141,6 +144,7 @@ export default function InterviewPage() {
     <CandidateCompletePanel
       problemTitle={interview.problem.title}
       candidateName={interview.candidate.name}
+      positionName={interview.positionName}
       status={interview.status}
       submittedAt={interview.submittedAt}
       endReason={interview.endReason}

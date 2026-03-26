@@ -17,6 +17,7 @@ export const problemSchema = z.object({
   problemType: z.enum(['ALGORITHM_MODELING', 'FEATURE_DEV', 'DEBUG_FIX', 'DATA_PROCESSING', 'AGENT_DEV', 'ITERATION_REFACTOR', 'PRODUCT_DESIGN']).optional(),
   difficulty: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  positions: z.array(z.string()).optional(),
   scoringRubric: z.string().optional()
 })
 

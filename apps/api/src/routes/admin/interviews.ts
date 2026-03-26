@@ -84,6 +84,32 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // GET /api/admin/interviews/position-names — 岗位名称自动补全
+  fastify.get<{ Querystring: { q?: string } }>(
+    '/api/admin/interviews/position-names',
+    async (request) => {
+      const organizationId = request.user!.organizationId!;
+      const q = request.query.q?.trim() || '';
+
+      const results = await prisma.interview.findMany({
+        where: {
+          organizationId,
+          positionName: q
+            ? { not: null, contains: q, mode: 'insensitive' as const }
+            : { not: null }
+        },
+        select: { positionName: true },
+        distinct: ['positionName'],
+        orderBy: { createdAt: 'desc' },
+        take: 20
+      });
+
+      return results
+        .map(r => r.positionName)
+        .filter((name): name is string => Boolean(name));
+    }
+  );
+
   fastify.get<{ Params: { id: string } }>('/api/admin/interviews/:id', async (request, reply) => {
     const interview = await prisma.interview.findFirst({
       where: {

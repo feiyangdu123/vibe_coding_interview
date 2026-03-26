@@ -120,6 +120,7 @@ export interface CreateProblemDto {
   problemType?: ProblemType;
   difficulty?: string;
   tags?: string[];
+  positions?: string[];
   scoringRubric?: string;
 }
 

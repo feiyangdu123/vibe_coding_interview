@@ -34,6 +34,7 @@ interface Problem {
   problemType?: ProblemType
   difficulty?: string
   tags?: string[]
+  positions?: string[]
 }
 
 export default function ProblemsPage() {
@@ -79,6 +80,7 @@ export default function ProblemsPage() {
       problemType: 'FEATURE_DEV',
       difficulty: '',
       tags: [],
+      positions: [],
       scoringRubric: '',
     }
   })
@@ -131,6 +133,7 @@ export default function ProblemsPage() {
       problemType: 'FEATURE_DEV',
       difficulty: '',
       tags: [],
+      positions: [],
       scoringRubric: '',
     })
     setDialogOpen(true)
@@ -161,6 +164,7 @@ export default function ProblemsPage() {
       problemType: problem.problemType || 'FEATURE_DEV',
       difficulty: problem.difficulty || '',
       tags: problem.tags || [],
+      positions: problem.positions || [],
       scoringRubric: '',
     })
     setDialogOpen(true)
@@ -574,6 +578,28 @@ export default function ProblemsPage() {
                             field.onChange(tags)
                           }}
                           placeholder="用逗号分隔"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="positions"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>适用岗位</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={Array.isArray(field.value) ? field.value.join(', ') : ''}
+                          onChange={(e) => {
+                            const positions = e.target.value.split(',').map(t => t.trim()).filter(Boolean)
+                            field.onChange(positions)
+                          }}
+                          placeholder="用逗号分隔，如：前端工程师, 全栈工程师"
                         />
                       </FormControl>
                       <FormMessage />

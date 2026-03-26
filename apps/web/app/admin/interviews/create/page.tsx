@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -47,6 +47,7 @@ interface Problem {
   difficulty?: string
   problemType?: string
   visibility?: string
+  positions?: string[]
 }
 
 function toDateTimeInputValue(value?: string | Date | null) {
@@ -63,6 +64,40 @@ function toApiDateTimeValue(value: string) {
   return new Date(value).toISOString()
 }
 
+function levenshteinDistance(a: string, b: string): number {
+  const la = a.length, lb = b.length
+  const dp: number[][] = Array.from({ length: la + 1 }, (_, i) =>
+    Array.from({ length: lb + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  )
+  for (let i = 1; i <= la; i++) {
+    for (let j = 1; j <= lb; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[la][lb]
+}
+
+function bestPositionMatch(positions: string[], positionName: string): { distance: number; matchedPosition: string | null } {
+  if (!positions || positions.length === 0 || !positionName.trim()) {
+    return { distance: Infinity, matchedPosition: null }
+  }
+  const target = positionName.toLowerCase()
+  let best = { distance: Infinity, matchedPosition: null as string | null }
+  for (const pos of positions) {
+    const d = levenshteinDistance(pos.toLowerCase(), target)
+    if (d < best.distance) {
+      best = { distance: d, matchedPosition: pos }
+    }
+  }
+  return best
+}
+
+interface SortedProblem extends Problem {
+  _matchedPosition?: string | null
+}
+
 export default function CreateInterviewPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -70,6 +105,7 @@ export default function CreateInterviewPage() {
   const [users, setUsers] = useState<User[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [problems, setProblems] = useState<Problem[]>([])
+  const [sortedProblems, setSortedProblems] = useState<SortedProblem[]>([])
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
   const [interviewLink, setInterviewLink] = useState('')
@@ -79,6 +115,10 @@ export default function CreateInterviewPage() {
   const [quotaSummary, setQuotaSummary] = useState<InterviewQuotaSummary | null>(null)
   const [candidateSearch, setCandidateSearch] = useState('')
   const [hideInterviewedCandidates, setHideInterviewedCandidates] = useState(false)
+  const [positionSuggestions, setPositionSuggestions] = useState<string[]>([])
+  const [showPositionSuggestions, setShowPositionSuggestions] = useState(false)
+  const positionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const positionInputRef = useRef<HTMLDivElement>(null)
 
   const form = useForm<InterviewCreateFormData>({
     resolver: zodResolver(interviewCreateSchema),
@@ -101,6 +141,7 @@ export default function CreateInterviewPage() {
 
   const candidateMode = form.watch('candidateMode')
   const problemId = form.watch('problemId')
+  const positionName = form.watch('positionName')
   const scheduledStartAt = form.watch('scheduledStartAt')
   const selectedCandidateIds = form.watch('candidateIds') ?? []
   const filteredCandidates = candidates.filter(candidate => {
@@ -138,6 +179,26 @@ export default function CreateInterviewPage() {
       setQuotaSummary(null)
     }
   }
+
+  const fetchPositionNames = useCallback(async (query: string) => {
+    try {
+      const names = await apiFetch(`/api/admin/interviews/position-names?q=${encodeURIComponent(query)}`)
+      setPositionSuggestions(names)
+    } catch {
+      setPositionSuggestions([])
+    }
+  }, [])
+
+  useEffect(() => {
+    // Close position suggestions on click outside
+    const handleClickOutside = (e: MouseEvent) => {
+      if (positionInputRef.current && !positionInputRef.current.contains(e.target as Node)) {
+        setShowPositionSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     const loadData = async () => {
@@ -204,6 +265,20 @@ export default function CreateInterviewPage() {
       setSelectedProblem(null)
     }
   }, [problemId, problems])
+
+  // Sort problems by Levenshtein distance to positionName
+  useEffect(() => {
+    if (!positionName || !positionName.trim()) {
+      setSortedProblems(problems.map(p => ({ ...p, _matchedPosition: null })))
+      return
+    }
+    const scored = problems.map(p => {
+      const match = bestPositionMatch(p.positions || [], positionName)
+      return { ...p, _matchedPosition: match.matchedPosition, _distance: match.distance }
+    })
+    scored.sort((a, b) => a._distance - b._distance)
+    setSortedProblems(scored)
+  }, [positionName, problems])
 
   const handleSaveDraft = async () => {
     const values = form.getValues()
@@ -424,7 +499,44 @@ export default function CreateInterviewPage() {
                   <FormItem>
                     <FormLabel>职位名称</FormLabel>
                     <FormControl>
-                      <Input placeholder="例如：高级前端工程师" {...field} />
+                      <div ref={positionInputRef} className="relative">
+                        <Input
+                          placeholder="例如：高级前端工程师"
+                          {...field}
+                          onChange={(e) => {
+                            field.onChange(e)
+                            const val = e.target.value
+                            if (positionDebounceRef.current) clearTimeout(positionDebounceRef.current)
+                            positionDebounceRef.current = setTimeout(() => {
+                              fetchPositionNames(val)
+                              setShowPositionSuggestions(true)
+                            }, 300)
+                          }}
+                          onFocus={() => {
+                            fetchPositionNames(field.value || '')
+                            setShowPositionSuggestions(true)
+                          }}
+                          autoComplete="off"
+                        />
+                        {showPositionSuggestions && positionSuggestions.length > 0 && (
+                          <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-white shadow-lg max-h-48 overflow-y-auto">
+                            {positionSuggestions.map((name) => (
+                              <button
+                                key={name}
+                                type="button"
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors"
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  field.onChange(name)
+                                  setShowPositionSuggestions(false)
+                                }}
+                              >
+                                {name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </FormControl>
                     <FormDescription>可选，用于标识面试职位</FormDescription>
                     <FormMessage />
@@ -495,12 +607,17 @@ export default function CreateInterviewPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {problems.map(problem => (
+                        {sortedProblems.map(problem => (
                           <SelectItem key={problem.id} value={problem.id}>
                             <span className="text-muted-foreground text-xs mr-1">
                               {problem.visibility === 'ORG_SHARED' ? '[共享]' : '[私有]'}
                             </span>
                             {problem.title}
+                            {problem._matchedPosition && (
+                              <Badge variant="secondary" className="ml-2 text-xs py-0 px-1">
+                                {problem._matchedPosition}
+                              </Badge>
+                            )}
                           </SelectItem>
                         ))}
                       </SelectContent>

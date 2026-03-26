@@ -11,6 +11,7 @@ interface CandidateWorkspacePanelProps {
   problemDescription: string
   problemRequirements: string
   candidateName: string
+  positionName?: string
   endTime: string
   workspaceUrl?: string
   token: string
@@ -21,6 +22,7 @@ interface CandidateWorkspacePanelProps {
 export function CandidateWorkspacePanel({
   problemTitle,
   candidateName,
+  positionName,
   endTime,
   workspaceUrl,
   token,
@@ -88,6 +90,11 @@ export function CandidateWorkspacePanel({
             <Badge variant="secondary" className="text-sm px-3 py-1">
               {candidateName}
             </Badge>
+            {positionName && (
+              <Badge variant="outline" className="text-sm px-3 py-1">
+                {positionName}
+              </Badge>
+            )}
           </div>
         </div>
 

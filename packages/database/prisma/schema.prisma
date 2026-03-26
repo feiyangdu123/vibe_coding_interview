@@ -172,6 +172,7 @@ model Problem {
   problemType                ProblemType       @default(FEATURE_DEV)
   difficulty                 String?
   tags                       String[]          @default([])
+  positions                  String[]          @default([])
   scoringRubric              String?           @db.Text
   sourceTemplateId           String?
 
@@ -245,6 +246,7 @@ model Interview {
   deletedAt       DateTime?
 
   // 新增字段
+  positionName   String?
   organizationId String
   interviewerId  String?
   endReason      EndReason?

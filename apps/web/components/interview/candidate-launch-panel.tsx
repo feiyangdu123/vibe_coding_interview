@@ -8,6 +8,7 @@ interface CandidateLaunchPanelProps {
   problemTitle: string
   duration: number
   candidateName: string
+  positionName?: string
   scheduledStartAt?: string
   joinWindowOpensAt?: string
   joinDeadlineAt?: string
@@ -19,6 +20,7 @@ export function CandidateLaunchPanel({
   problemTitle,
   duration,
   candidateName,
+  positionName,
   workDir,
   onStart
 }: CandidateLaunchPanelProps) {
@@ -37,6 +39,11 @@ export function CandidateLaunchPanel({
             <Badge variant="secondary" className="text-sm px-3 py-1">
               {candidateName}
             </Badge>
+            {positionName && (
+              <Badge variant="outline" className="text-sm px-3 py-1">
+                {positionName}
+              </Badge>
+            )}
           </div>
         </div>
 

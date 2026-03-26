@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 interface CandidateCompletePanelProps {
   problemTitle: string
   candidateName: string
+  positionName?: string
   status: string
   submittedAt?: string
   endReason?: string
@@ -14,6 +15,7 @@ interface CandidateCompletePanelProps {
 export function CandidateCompletePanel({
   problemTitle,
   candidateName,
+  positionName,
   status,
   submittedAt,
   endReason
@@ -61,7 +63,9 @@ export function CandidateCompletePanel({
             <Badge variant="outline">Interview Result</Badge>
           </div>
           <h1 className="text-[30px] font-semibold tracking-[-0.03em] text-slate-950">{problemTitle}</h1>
-          <p className="text-sm text-slate-500">候选人：{candidateName}</p>
+          <p className="text-sm text-slate-500">
+            候选人：{candidateName}{positionName && ` · ${positionName}`}
+          </p>
         </div>
 
         <Card>
