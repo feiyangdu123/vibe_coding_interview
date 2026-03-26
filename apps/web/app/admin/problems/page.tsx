@@ -165,7 +165,7 @@ export default function ProblemsPage() {
       difficulty: problem.difficulty || '',
       tags: problem.tags || [],
       positions: problem.positions || [],
-      scoringRubric: '',
+      scoringRubric: problem.scoringRubric || '',
     })
     setDialogOpen(true)
   }

@@ -14,41 +14,44 @@ export function getEvaluationStream(runId: string): EventEmitter | null {
   return activeEvaluationStreams.get(runId) || null;
 }
 
-const EVALUATION_PROMPT_TEMPLATE = `你是一个评估候选人 vibe coding 能力的专家。请根据候选人与 AI 编程助手的交互历史，对其能力进行评分。
+const EVALUATION_PROMPT_TEMPLATE = `你是一位资深的技术面试评估专家。请根据候选人与 AI 编程助手的完整交互历史，撰写一份深度叙述性评估报告（Markdown 格式）。
 
 **题目信息**:
-标题: {PROBLEM_TITLE}
-要求: {PROBLEM_REQUIREMENTS}
-评分细则: {SCORING_RUBRIC}
+- 标题: {PROBLEM_TITLE}
+- 要求: {PROBLEM_REQUIREMENTS}
+- 评分细则: {SCORING_RUBRIC}
 
 **面试信息**:
-时长: {DURATION} 分钟
-结束原因: {END_REASON}
-项目路径: {PROJECT_PATH}
+- 时长: {DURATION} 分钟
+- 结束原因: {END_REASON}
+- 项目路径: {PROJECT_PATH}
 
 **聊天历史**:
 {CHAT_HISTORY}
 
-**评分标准**（总分 100 分，5 个维度，分值参考评分细则，若评分细则未指定则每维度默认 20 分）:
+---
 
-1. **需求拆分能力 (0-20 分)** - 候选人是否将复杂任务拆分成小的、可管理的部分？
-2. **技术方案选择 (0-20 分)** - 候选人是否选择合适的技术方案？
-3. **研究优先方法论 (0-20 分)** - 候选人是否在开始实现前先研究和理解问题？
-4. **沟通清晰度 (0-20 分)** - 候选人的指令有多清晰和具体？
-5. **迭代改进 (0-20 分)** - 候选人是否审查 AI 的输出并提供反馈？
+请撰写一份完整的 Markdown 评估报告，要求：
 
-注意：如果评分细则中指定了各维度的分值分配，请以评分细则为准。上述每维度 20 分仅为默认值。
+1. **面试概要**: 用 2-3 句话概述候选人的面试表现和最终完成情况。
 
-请直接输出评估结果，格式如下：
-总分: X/100
+2. **过程分析**: 按时间线描述候选人的关键决策和行为，引用聊天记录中的具体例子（如"候选人在第 N 轮对话中提到..."）。
 
-1. 需求拆分能力: X/20 - 原因
-2. 技术方案选择: X/20 - 原因
-3. 研究优先方法论: X/20 - 原因
-4. 沟通清晰度: X/20 - 原因
-5. 迭代改进: X/20 - 原因
+3. **能力评估**: 从以下 5 个维度进行深度分析，每个维度用一个小节展开，包含具体行为举例和引用：
+   - **需求拆分能力** — 候选人是否将复杂任务拆分成小的、可管理的部分？
+   - **技术方案选择** — 候选人是否选择合适的技术方案并给出合理理由？
+   - **研究优先方法论** — 候选人是否在实现前先研究和理解问题？
+   - **沟通清晰度** — 候选人与 AI 的指令是否清晰、具体、有上下文？
+   - **迭代改进** — 候选人是否审查 AI 输出并主动反馈改进？
 
-整体评价: 2-3句话的总结`;
+4. **亮点与不足**: 分别列出候选人的突出亮点和明显不足，附具体例证。
+
+5. **总结与建议**: 给出整体评价和改进建议。
+
+注意：如果评分细则中指定了各维度的分值分配，请以评分细则为准。上述每维度默认各 20 分（总分 100 分）。
+
+**报告末尾必须单独一行输出总分，格式为：**
+**总分: X/100**`;
 
 interface EvaluationDimension {
   name: string;
@@ -58,8 +61,10 @@ interface EvaluationDimension {
 
 interface EvaluationDetails {
   totalScore: number;
-  dimensions: EvaluationDimension[];
-  summary: string;
+  report?: string;
+  // Keep for backward compatibility with old evaluation data
+  dimensions?: EvaluationDimension[];
+  summary?: string;
 }
 
 interface EvaluationResult {
@@ -152,14 +157,7 @@ export async function evaluateInterview(
         result: '候选人未与 AI 助手进行任何交互，无法评估。',
         details: {
           totalScore: 0,
-          dimensions: [
-            { name: '需求拆分能力', score: 0, reasoning: '候选人未进行任何交互' },
-            { name: '技术方案选择', score: 0, reasoning: '候选人未进行任何交互' },
-            { name: '研究优先方法论', score: 0, reasoning: '候选人未进行任何交互' },
-            { name: '沟通清晰度', score: 0, reasoning: '候选人未进行任何交互' },
-            { name: '迭代改进', score: 0, reasoning: '候选人未进行任何交互' },
-          ],
-          summary: '候选人在面试期间未与 AI 编程助手进行任何交互，无法对其 vibe coding 能力进行评估。'
+          report: '## 评估结果\n\n候选人在面试期间未与 AI 编程助手进行任何交互，无法对其 vibe coding 能力进行评估。\n\n**总分: 0/100**'
         }
       };
 
@@ -545,42 +543,17 @@ function parseEvaluationResult(rawOutput: string): EvaluationResult {
       throw new Error(`Invalid score: ${score}`);
     }
 
-    // 提取各维度评分
-    const dimensions: EvaluationDimension[] = [];
-    const dimensionNames = [
-      '需求拆分能力',
-      '技术方案选择',
-      '研究优先方法论',
-      '沟通清晰度',
-      '迭代改进'
-    ];
+    // 整个输出作为 Markdown 报告
+    const report = rawOutput.trim();
 
-    for (const dimName of dimensionNames) {
-      const dimRegex = new RegExp(`\\d+\\.\\s*${dimName}[：:]\\s*(\\d+(?:\\.\\d+)?)\\s*\\/\\s*\\d+\\s*[-–—]\\s*(.+?)(?=\\n\\d+\\.|\\n整体评价|$)`, 's');
-      const dimMatch = rawOutput.match(dimRegex);
-
-      if (dimMatch) {
-        dimensions.push({
-          name: dimName,
-          score: parseFloat(dimMatch[1]),
-          reasoning: dimMatch[2].trim()
-        });
-      }
-    }
-
-    // 提取整体评价
-    const summaryMatch = rawOutput.match(/整体评价[：:]\s*(.+?)$/s);
-    const summary = summaryMatch ? summaryMatch[1].trim() : '无整体评价';
-
-    console.log(`[Evaluation] Parsed ${dimensions.length} dimensions, summary length: ${summary.length}`);
+    console.log(`[Evaluation] Parsed score: ${score}, report length: ${report.length}`);
 
     return {
       score,
-      result: rawOutput.trim(),
+      result: report,
       details: {
         totalScore: score,
-        dimensions,
-        summary
+        report
       }
     };
   } catch (error) {

@@ -14,8 +14,7 @@ import { AiRunHistoryPanel } from '@/components/review/ai-run-history-panel'
 import { ChatHistoryPanel } from '@/components/review/chat-history-panel'
 import { EventTimelinePanel } from '@/components/review/event-timeline-panel'
 import { ReviewDecisionForm } from '@/components/review/review-decision-form'
-import { EvaluationStreamPanel } from '@/components/review/evaluation-stream-panel'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 
 interface Interview {
   id: string
@@ -110,6 +109,15 @@ export default function ReviewPage() {
     loadData()
   }, [])
 
+  // Poll for completion when evaluating
+  useEffect(() => {
+    if (!isEvaluating) return
+    const interval = setInterval(() => {
+      loadData()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [isEvaluating])
+
   const handleSelectRun = useCallback((runId: string) => {
     setSelectedRunId(runId)
     const run = evaluationHistory.find(r => r.id === runId)
@@ -178,11 +186,10 @@ export default function ReviewPage() {
             </CardHeader>
             <CardContent>
               {isEvaluating ? (
-                <EvaluationStreamPanel
-                  interviewId={interviewId}
-                  isRunning={true}
-                  onComplete={handleEvaluationComplete}
-                />
+                <div className="flex flex-col items-center justify-center py-16 gap-4">
+                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">AI 正在评估中，请稍候...</p>
+                </div>
               ) : interview.aiEvaluationStatus === 'completed' && currentDetails ? (
                 <AiEvaluationPanel details={parseDetails(currentDetails)} score={currentScore} rawOutput={rawOutput} />
               ) : interview.aiEvaluationStatus === 'failed' ? (

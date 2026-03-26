@@ -3,13 +3,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react'
-import { EvaluationStreamPanel } from '@/components/review/evaluation-stream-panel'
 import { AiEvaluationPanel } from '@/components/review/ai-evaluation-panel'
 
 interface EvaluationDetails {
   totalScore: number
-  dimensions: { name: string; score: number; reasoning: string }[]
-  summary: string
+  report?: string
+  dimensions?: { name: string; score: number; reasoning: string }[]
+  summary?: string
 }
 
 interface EvaluationData {
@@ -76,6 +76,15 @@ export function EvaluationDialog({ open, onOpenChange, interviewId, interviewSta
     loadEvaluation()
   }, [open, interviewId, loadEvaluation])
 
+  // Poll for completion when evaluating
+  useEffect(() => {
+    if (!isEvaluating || !interviewId) return
+    const interval = setInterval(() => {
+      loadEvaluation()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [isEvaluating, interviewId, loadEvaluation])
+
   const handleReEvaluate = useCallback(async () => {
     if (!interviewId) return
     try {
@@ -86,11 +95,6 @@ export function EvaluationDialog({ open, onOpenChange, interviewId, interviewSta
       setError(msg)
     }
   }, [interviewId])
-
-  const handleEvaluationComplete = useCallback(() => {
-    setIsEvaluating(false)
-    loadEvaluation()
-  }, [loadEvaluation])
 
   const canReEvaluate = interviewStatus && interviewStatus !== 'PENDING' && interviewStatus !== 'IN_PROGRESS' && !isEvaluating
 
@@ -121,13 +125,12 @@ export function EvaluationDialog({ open, onOpenChange, interviewId, interviewSta
             </div>
           )}
 
-          {/* Streaming panel — shown when evaluation is running */}
-          {isEvaluating && interviewId && (
-            <EvaluationStreamPanel
-              interviewId={interviewId}
-              isRunning={true}
-              onComplete={handleEvaluationComplete}
-            />
+          {/* Simple spinner when evaluation is running */}
+          {isEvaluating && (
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">AI 正在评估中，请稍候...</p>
+            </div>
           )}
 
           {!loading && !error && !isEvaluating && evaluation && (
@@ -146,12 +149,6 @@ export function EvaluationDialog({ open, onOpenChange, interviewId, interviewSta
                   </div>
                   <p className="text-red-700 text-sm mb-1">{evaluation.aiEvaluationError || '未知错误'}</p>
                   <p className="text-xs text-red-600">重试次数: {evaluation.aiEvaluationRetries}</p>
-                  {evaluation.rawOutput && (
-                    <div className="mt-3 p-3 bg-white rounded border">
-                      <h4 className="text-sm font-medium text-gray-700 mb-1">部分输出:</h4>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{evaluation.rawOutput}</p>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 gap-4">

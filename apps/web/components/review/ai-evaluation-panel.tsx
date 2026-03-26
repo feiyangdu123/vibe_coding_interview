@@ -1,8 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { Copy, Check } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 
 interface EvaluationDimension {
   name: string
@@ -12,8 +10,10 @@ interface EvaluationDimension {
 
 interface EvaluationDetails {
   totalScore: number
-  dimensions: EvaluationDimension[]
-  summary: string
+  report?: string
+  // Legacy fields for backward compatibility
+  dimensions?: EvaluationDimension[]
+  summary?: string
 }
 
 interface AiEvaluationPanelProps {
@@ -92,70 +92,23 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
-function RawOutputViewer({ rawOutput }: { rawOutput: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(rawOutput)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+/** Legacy: render old dimension-based evaluation */
+function LegacyDimensionsView({ details, score }: { details: EvaluationDetails; score: number }) {
+  const hasDimensions = details.dimensions && details.dimensions.length > 0
 
   return (
-    <div className="rounded-lg overflow-hidden border border-slate-700">
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700">
-        <span className="text-xs font-medium text-slate-400">AI 评估完整输出</span>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? '已复制' : '复制'}
-        </button>
-      </div>
-      <div className="bg-slate-900 p-4 max-h-[600px] overflow-y-auto">
-        <pre className="text-sm leading-relaxed whitespace-pre-wrap font-mono text-slate-300">
-          {rawOutput}
-        </pre>
-      </div>
-    </div>
-  )
-}
-
-export function AiEvaluationPanel({ details, score, rawOutput }: AiEvaluationPanelProps) {
-  const displayScore = score ?? details.totalScore
-  const hasDimensions = details.dimensions && details.dimensions.length > 0
-  const hasRawOutput = !!rawOutput
-
-  // Fallback: no structured data, show rawOutput
-  if (!hasDimensions && !details.summary && rawOutput) {
-    return (
-      <div className="space-y-4">
-        {displayScore > 0 && (
-          <div className="flex justify-center py-2">
-            <ScoreRing score={displayScore} />
-          </div>
-        )}
-        <RawOutputViewer rawOutput={rawOutput} />
-      </div>
-    )
-  }
-
-  const scoreOverviewContent = (
     <div className="space-y-5">
-      {/* Hero score + summary */}
       <div className="flex items-center gap-6">
-        <ScoreRing score={displayScore} />
+        <ScoreRing score={score} />
         {details.summary && (
           <p className="text-sm text-gray-700 leading-relaxed flex-1">{details.summary}</p>
         )}
       </div>
 
-      {/* Dimensions - all expanded with color bands */}
       {hasDimensions && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-gray-500 mb-2">各维度评分</h3>
-          {details.dimensions.map((dim, idx) => (
+          {details.dimensions!.map((dim, idx) => (
             <div key={idx} className={`border rounded-lg overflow-hidden border-l-4 ${getDimBorderColor(dim.score)}`}>
               <div className="flex items-center gap-3 p-3">
                 <span className="text-sm font-medium text-gray-800 flex-1">{dim.name}</span>
@@ -182,24 +135,47 @@ export function AiEvaluationPanel({ details, score, rawOutput }: AiEvaluationPan
       )}
     </div>
   )
+}
 
-  // If there's rawOutput, show Tabs layout; otherwise just show the score overview
-  if (!hasRawOutput) {
-    return scoreOverviewContent
+export function AiEvaluationPanel({ details, score, rawOutput }: AiEvaluationPanelProps) {
+  const displayScore = score ?? details.totalScore
+  const hasReport = !!details.report
+  const hasLegacyDimensions = !hasReport && details.dimensions && details.dimensions.length > 0
+
+  // New format: ScoreRing + Markdown report
+  if (hasReport) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-center py-2">
+          <ScoreRing score={displayScore} />
+        </div>
+        <MarkdownRenderer content={details.report!} />
+      </div>
+    )
   }
 
-  return (
-    <Tabs defaultValue="overview" className="w-full">
-      <TabsList>
-        <TabsTrigger value="overview">评分概览</TabsTrigger>
-        <TabsTrigger value="process">评估过程</TabsTrigger>
-      </TabsList>
-      <TabsContent value="overview" className="mt-4">
-        {scoreOverviewContent}
-      </TabsContent>
-      <TabsContent value="process" className="mt-4">
-        <RawOutputViewer rawOutput={rawOutput!} />
-      </TabsContent>
-    </Tabs>
-  )
+  // Legacy format: dimension cards
+  if (hasLegacyDimensions || details.summary) {
+    return <LegacyDimensionsView details={details} score={displayScore} />
+  }
+
+  // Fallback: show raw output
+  if (rawOutput) {
+    return (
+      <div className="space-y-4">
+        {displayScore > 0 && (
+          <div className="flex justify-center py-2">
+            <ScoreRing score={displayScore} />
+          </div>
+        )}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 max-h-[600px] overflow-y-auto">
+          <pre className="text-sm leading-relaxed whitespace-pre-wrap font-mono text-slate-700">
+            {rawOutput}
+          </pre>
+        </div>
+      </div>
+    )
+  }
+
+  return <div className="text-gray-500 text-sm">暂无评估数据</div>
 }

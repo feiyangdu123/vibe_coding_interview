@@ -7,6 +7,16 @@ import { CandidateLaunchPanel } from '@/components/interview/candidate-launch-pa
 import { CandidateWorkspacePanel } from '@/components/interview/candidate-workspace-panel'
 import { CandidateCompletePanel } from '@/components/interview/candidate-complete-panel'
 
+function rewriteWorkspaceUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.hostname = window.location.hostname
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
 interface Interview {
   id: string
   status: string
@@ -44,6 +54,9 @@ export default function InterviewPage() {
     fetch(`${API_BASE}/api/interview/${token}`)
       .then(res => res.json())
       .then(data => {
+        if (data.workspaceUrl) {
+          data.workspaceUrl = rewriteWorkspaceUrl(data.workspaceUrl)
+        }
         setInterview(data)
         setLoading(false)
       })
@@ -68,9 +81,10 @@ export default function InterviewPage() {
         console.error('Start interview error:', data)
         return
       }
-      setInterview(data)
-      if (data.workspaceUrl) {
-        window.open(data.workspaceUrl, '_blank', 'noopener,noreferrer')
+      const rewritten = data.workspaceUrl ? rewriteWorkspaceUrl(data.workspaceUrl) : undefined
+      setInterview({ ...data, workspaceUrl: rewritten })
+      if (rewritten) {
+        window.open(rewritten, '_blank', 'noopener,noreferrer')
       }
     } catch (err) {
       console.error('Start interview exception:', err)
