@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { API_BASE } from '@/lib/api'
 import { CandidateLaunchPanel } from '@/components/interview/candidate-launch-panel'
 import { CandidateWorkspacePanel } from '@/components/interview/candidate-workspace-panel'
 import { CandidateCompletePanel } from '@/components/interview/candidate-complete-panel'
@@ -39,7 +40,7 @@ export default function InterviewPage() {
   const [loading, setLoading] = useState(true)
 
   const fetchInterview = () => {
-    fetch(`/api/interview/${token}`)
+    fetch(`${API_BASE}/api/interview/${token}`)
       .then(res => res.json())
       .then(data => {
         setInterview(data)
@@ -57,7 +58,7 @@ export default function InterviewPage() {
 
   const handleStart = async () => {
     try {
-      const res = await fetch(`/api/interview/${token}/start`, {
+      const res = await fetch(`${API_BASE}/api/interview/${token}/start`, {
         method: 'POST'
       })
       const data = await res.json()
@@ -107,12 +108,12 @@ export default function InterviewPage() {
     return (
       <CandidateLaunchPanel
         problemTitle={interview.problem.title}
-        problemDescription={interview.problem.description}
         duration={interview.duration}
         candidateName={interview.candidate.name}
         scheduledStartAt={interview.scheduledStartAt}
         joinWindowOpensAt={interview.joinWindowOpensAt}
         joinDeadlineAt={interview.joinDeadlineAt}
+        workDir={interview.workDir}
         onStart={handleStart}
       />
     )
@@ -129,6 +130,7 @@ export default function InterviewPage() {
         endTime={interview.endTime}
         workspaceUrl={interview.workspaceUrl}
         token={token}
+        workDir={interview.workDir}
         onSubmit={handleSubmit}
       />
     )

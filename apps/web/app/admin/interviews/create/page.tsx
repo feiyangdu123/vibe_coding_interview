@@ -46,6 +46,7 @@ interface Problem {
   duration: number
   difficulty?: string
   problemType?: string
+  visibility?: string
 }
 
 function toDateTimeInputValue(value?: string | Date | null) {
@@ -69,7 +70,6 @@ export default function CreateInterviewPage() {
   const [users, setUsers] = useState<User[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [problems, setProblems] = useState<Problem[]>([])
-  const [problemTemplates, setProblemTemplates] = useState<Problem[]>([])
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
   const [interviewLink, setInterviewLink] = useState('')
@@ -142,17 +142,15 @@ export default function CreateInterviewPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [usersRes, candidatesRes, problemsRes, templatesRes] = await Promise.all([
+        const [usersRes, candidatesRes, problemsRes] = await Promise.all([
           apiFetch('/api/admin/users?limit=1000'),
           apiFetch('/api/admin/candidates?limit=1000'),
-          apiFetch('/api/admin/problems?limit=1000'),
-          apiFetch('/api/admin/problem-templates?limit=1000')
+          apiFetch('/api/admin/problems?limit=1000')
         ])
 
         setUsers(usersRes.data || usersRes)
         setCandidates(candidatesRes.data || candidatesRes)
         setProblems(problemsRes.data || problemsRes)
-        setProblemTemplates(templatesRes.data || templatesRes)
         await loadQuotaSummary()
 
         // Set default interviewer to current user if available
@@ -228,23 +226,6 @@ export default function CreateInterviewPage() {
       toast.success('草稿已保存')
     } catch (err) {
       toast.error('保存草稿失败')
-    }
-  }
-
-  const handleUseTemplate = async (templateId: string) => {
-    try {
-      const copiedProblem = await apiFetch(`/api/admin/problem-templates/${templateId}/copy`, {
-        method: 'POST'
-      })
-
-      setProblems(prev => [copiedProblem, ...prev])
-      setSelectedProblem(copiedProblem)
-      form.setValue('problemId', copiedProblem.id, { shouldValidate: true })
-      form.setValue('duration', copiedProblem.duration)
-      toast.success('已复制平台模板并设为当前题目')
-    } catch (err) {
-      console.error(err)
-      toast.error('复制模板失败')
     }
   }
 
@@ -516,6 +497,9 @@ export default function CreateInterviewPage() {
                       <SelectContent>
                         {problems.map(problem => (
                           <SelectItem key={problem.id} value={problem.id}>
+                            <span className="text-muted-foreground text-xs mr-1">
+                              {problem.visibility === 'ORG_SHARED' ? '[共享]' : '[私有]'}
+                            </span>
                             {problem.title}
                           </SelectItem>
                         ))}
@@ -550,35 +534,13 @@ export default function CreateInterviewPage() {
                 </Card>
               )}
 
-              {problemTemplates.length > 0 && (
-                <div className="space-y-3 pt-2">
-                  <div className="text-sm font-medium">平台模板</div>
-                  <div className="grid gap-3">
-                    {problemTemplates.slice(0, 3).map(template => (
-                      <Card key={template.id} className="border-dashed">
-                        <CardContent className="pt-4 flex items-start justify-between gap-4">
-                          <div className="space-y-2">
-                            <div className="font-medium">{template.title}</div>
-                            <p className="text-sm text-muted-foreground">
-                              {template.description.length > 120
-                                ? `${template.description.slice(0, 120)}...`
-                                : template.description}
-                            </p>
-                            <div className="flex gap-2 flex-wrap">
-                              <Badge variant="outline">平台模板</Badge>
-                              <Badge variant="secondary">{template.duration} 分钟</Badge>
-                              {template.difficulty && <Badge variant="secondary">{template.difficulty}</Badge>}
-                            </div>
-                          </div>
-                          <Button type="button" variant="outline" onClick={() => handleUseTemplate(template.id)}>
-                            复制并使用
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <p className="text-sm text-muted-foreground">
+                没有合适的题目？去
+                <a href="/admin/problems" className="text-primary underline underline-offset-4 hover:text-primary/80 mx-1">
+                  题目管理
+                </a>
+                浏览平台模板并复制到企业题库。
+              </p>
             </CardContent>
           </Card>
 

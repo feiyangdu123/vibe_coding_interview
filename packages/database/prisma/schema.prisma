@@ -173,6 +173,7 @@ model Problem {
   difficulty                 String?
   tags                       String[]          @default([])
   scoringRubric              String?           @db.Text
+  sourceTemplateId           String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation("ProblemCreator", fields: [createdById], references: [id])
@@ -182,6 +183,7 @@ model Problem {
   @@index([createdById])
   @@index([visibility])
   @@index([problemType])
+  @@index([organizationId, sourceTemplateId])
 }
 
 model ProblemTemplate {

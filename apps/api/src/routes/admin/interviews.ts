@@ -8,7 +8,7 @@ import {
   cancelPendingInterview
 } from '../../services/interview-service';
 import { getChatHistory } from '../../services/chat-history-service';
-import { evaluateInterview, getEvaluationHistory, getEvaluationRun } from '../../services/ai-evaluation-service';
+import { evaluateInterview, getEvaluationHistory, getEvaluationRun, getEvaluationStream } from '../../services/ai-evaluation-service';
 import { exportInterviewsToExcel } from '../../services/interview-export-service';
 import type { CreateInterviewDto, SubmitManualReviewDto, SubmitReviewDecisionDto, BatchCreateInterviewDto } from '@vibe/shared-types';
 import { parsePaginationParams, calculatePagination, getPaginationSkip } from '../../utils/pagination';
@@ -314,9 +314,21 @@ export async function interviewRoutes(fastify: FastifyInstance) {
 
       console.log('[Evaluation API] Returning parsedDetails:', parsedDetails ? 'object with totalScore=' + parsedDetails.totalScore : 'null');
 
+      // Fetch rawOutput from latest AiEvaluationRun for fallback display
+      let rawOutput: string | null = null;
+      const latestRun = await prisma.aiEvaluationRun.findFirst({
+        where: { interviewId: id },
+        orderBy: { version: 'desc' },
+        select: { rawOutput: true }
+      });
+      if (latestRun?.rawOutput) {
+        rawOutput = latestRun.rawOutput;
+      }
+
       return {
         ...interview,
-        aiEvaluationDetails: parsedDetails
+        aiEvaluationDetails: parsedDetails,
+        rawOutput
       };
     }
   );
@@ -479,6 +491,107 @@ export async function interviewRoutes(fastify: FastifyInstance) {
           manualReviewedAt: new Date(),
           manualReviewedBy: request.user!.id
         }
+      });
+    }
+  );
+
+  // SSE: 流式评估输出
+  fastify.get<{ Params: { id: string } }>(
+    '/api/admin/interviews/:id/evaluation-stream',
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const interview = await prisma.interview.findFirst({
+        where: {
+          id,
+          organizationId: request.user!.organizationId!
+        },
+        select: { id: true }
+      });
+
+      if (!interview) {
+        reply.code(404).send({ error: 'Interview not found' });
+        return;
+      }
+
+      // Find running evaluation run
+      const runningRun = await prisma.aiEvaluationRun.findFirst({
+        where: { interviewId: id, status: 'running' },
+        orderBy: { version: 'desc' }
+      });
+
+      // Set SSE headers (include CORS since raw writeHead bypasses Fastify's CORS plugin)
+      const origin = request.headers.origin || '*';
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true'
+      });
+
+      if (!runningRun) {
+        // No active evaluation — check for latest completed run and return its rawOutput
+        const latestRun = await prisma.aiEvaluationRun.findFirst({
+          where: { interviewId: id },
+          orderBy: { version: 'desc' },
+          select: { rawOutput: true, status: true }
+        });
+
+        if (latestRun?.rawOutput) {
+          reply.raw.write(`data: ${JSON.stringify({ type: 'text', content: latestRun.rawOutput })}\n\n`);
+        }
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        reply.raw.end();
+        return;
+      }
+
+      const emitter = getEvaluationStream(runningRun.id);
+
+      if (!emitter) {
+        // Emitter gone — evaluation may have just finished
+        const run = await prisma.aiEvaluationRun.findUnique({
+          where: { id: runningRun.id },
+          select: { rawOutput: true }
+        });
+        if (run?.rawOutput) {
+          reply.raw.write(`data: ${JSON.stringify({ type: 'text', content: run.rawOutput })}\n\n`);
+        }
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        reply.raw.end();
+        return;
+      }
+
+      const onData = (text: string) => {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`);
+      };
+
+      const onDone = () => {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        reply.raw.end();
+        cleanup();
+      };
+
+      const onError = (errorMsg: string) => {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'error', content: errorMsg })}\n\n`);
+        reply.raw.end();
+        cleanup();
+      };
+
+      const cleanup = () => {
+        emitter.removeListener('data', onData);
+        emitter.removeListener('done', onDone);
+        emitter.removeListener('error', onError);
+      };
+
+      emitter.on('data', onData);
+      emitter.on('done', onDone);
+      emitter.on('error', onError);
+
+      // Client disconnect
+      request.raw.on('close', () => {
+        cleanup();
       });
     }
   );

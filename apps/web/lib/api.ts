@@ -1,9 +1,8 @@
 import type { TriggerEvaluationResponse } from '@vibe/shared-types';
 
-const INTERNAL_API_BASE_URL = (process.env.INTERNAL_API_BASE_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
-const API_BASE = typeof window !== 'undefined'
-  ? ''
-  : INTERNAL_API_BASE_URL;
+export const API_BASE = typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.hostname}:3001`
+  : 'http://localhost:3001';
 
 export async function apiFetch(endpoint: string, options?: RequestInit) {
   const headers: Record<string, string> = {
@@ -57,4 +56,78 @@ export async function triggerInterviewEvaluation(
   return apiFetch(`/api/admin/interviews/${interviewId}/evaluate`, {
     method: 'POST'
   });
+}
+
+/**
+ * Connect to evaluation SSE stream.
+ * Uses fetch + ReadableStream (not EventSource) because we need credentials.
+ * Returns an abort function.
+ */
+export function connectEvaluationStream(
+  interviewId: string,
+  onData: (text: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/interviews/${interviewId}/evaluation-stream`, {
+        credentials: 'include',
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        onError(`Stream request failed: ${res.status}`);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        onError('No response body');
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6);
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === 'text') {
+              onData(event.content);
+            } else if (event.type === 'done') {
+              onDone();
+              return;
+            } else if (event.type === 'error') {
+              onError(event.content);
+              return;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+
+      // Stream ended without explicit done event
+      onDone();
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      onError(err.message || 'Stream connection failed');
+    }
+  })();
+
+  return () => controller.abort();
 }

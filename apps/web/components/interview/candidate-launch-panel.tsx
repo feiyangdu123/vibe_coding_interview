@@ -2,76 +2,101 @@
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 
 interface CandidateLaunchPanelProps {
   problemTitle: string
-  problemDescription: string
   duration: number
   candidateName: string
   scheduledStartAt?: string
   joinWindowOpensAt?: string
   joinDeadlineAt?: string
+  workDir?: string
   onStart: () => void
 }
 
 export function CandidateLaunchPanel({
   problemTitle,
-  problemDescription,
   duration,
   candidateName,
-  scheduledStartAt,
-  joinWindowOpensAt,
-  joinDeadlineAt,
+  workDir,
   onStart
 }: CandidateLaunchPanelProps) {
   return (
-    <div className="min-h-screen bg-background px-4 py-10">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <div className="space-y-3">
-          <Badge variant="outline">Interview Workspace</Badge>
-          <h1 className="text-[30px] font-semibold tracking-[-0.03em] text-slate-950">{problemTitle}</h1>
-          <p className="text-sm text-slate-500">候选人：{candidateName}</p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-10">
+      <div className="mx-auto max-w-3xl space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-1.5 text-sm font-medium text-white">
+            编程面试
+          </div>
+          <h1 className="text-[28px] font-bold tracking-[-0.02em] text-slate-950">
+            欢迎参加面试
+          </h1>
+          <div className="flex items-center justify-center gap-2">
+            <Badge variant="secondary" className="text-sm px-3 py-1">
+              {candidateName}
+            </Badge>
+          </div>
         </div>
 
+        {/* 面试必读卡片 */}
+        <Card className="border-blue-200 bg-blue-50/50">
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xl">📋</span>
+              <h2 className="text-lg font-bold text-slate-900">
+                面试必读 — 请仔细阅读以下事项
+              </h2>
+            </div>
+
+            <ol className="space-y-4 text-sm leading-relaxed text-slate-700">
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">1</span>
+                <span>点击下方按钮将打开编程环境，<strong className="text-slate-900">面试正式开始计时</strong></span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">2</span>
+                <span>进入编程环境后，题目在 <strong className="text-slate-900 font-mono bg-blue-100 px-1.5 py-0.5 rounded">题目与要求.md</strong> 文件中，请先查看题目</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">3</span>
+                <span><strong className="text-slate-900">务必确认打开目标项目目录</strong>{workDir && <>：<code className="font-mono bg-blue-100 px-1.5 py-0.5 rounded text-slate-900 text-xs">{workDir}</code></>}，且只在该目录下完成开发，否则可能影响 AI 评分</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">4</span>
+                <span>面试时长为 <strong className="text-slate-900">{duration} 分钟</strong>，超时将自动结束</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">5</span>
+                <span>完成后请<strong className="text-slate-900">回到此页面</strong>点击"提交面试"按钮</span>
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+
+        {/* 面试信息卡片 */}
         <Card>
-          <CardHeader>
-            <CardTitle>开始前确认</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="rounded-xl border border-blue-100 bg-blue-50 px-5 py-4">
-              <h2 className="text-base font-semibold text-blue-900">面试规则</h2>
-              <ul className="mt-3 space-y-2 text-sm text-blue-900/80">
-                <li>• 面试时长: {duration} 分钟</li>
-                {scheduledStartAt && (
-                  <li>• 预约开始: {new Date(scheduledStartAt).toLocaleString('zh-CN')}</li>
-                )}
-                {joinWindowOpensAt && (
-                  <li>• 最早可开始: {new Date(joinWindowOpensAt).toLocaleString('zh-CN')}</li>
-                )}
-                {joinDeadlineAt && (
-                  <li>• 最晚入场: {new Date(joinDeadlineAt).toLocaleString('zh-CN')}</li>
-                )}
-                <li>• 点击"开始面试"后，计时器将开始倒计时</li>
-                <li>• OpenCode 编程环境将在新标签页中自动打开</li>
-                <li>• 请在规定时间内完成编程任务</li>
-                <li>• 完成后点击"提交面试"按钮结束面试</li>
-                <li>• 时间到后系统将自动结束面试</li>
-              </ul>
-            </div>
-
-            <div>
-              <h2 className="mb-2 text-base font-semibold text-slate-950">题目描述</h2>
-              <p className="whitespace-pre-wrap text-sm leading-7 text-slate-600">{problemDescription}</p>
-            </div>
-
-            <div className="flex justify-center pt-2">
-              <Button size="lg" onClick={onStart} className="px-12">
-                开始面试
-              </Button>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between text-sm">
+              <div className="text-slate-500">
+                题目名称：<span className="font-medium text-slate-900">{problemTitle}</span>
+              </div>
+              <Badge variant="secondary">{duration} 分钟</Badge>
             </div>
           </CardContent>
         </Card>
+
+        {/* 开始面试按钮 */}
+        <div className="flex justify-center pt-4">
+          <Button
+            size="lg"
+            onClick={onStart}
+            className="px-16 py-6 text-base font-semibold bg-blue-600 hover:bg-blue-700"
+          >
+            开始面试
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -17,6 +17,8 @@ export interface InstanceInfo {
   workDir: string;
   dataDir: string;
   startedAt: Date;
+  apiKeyConfig?: ApiKeyConfig;
+  restartCount: number;
 }
 
 interface OpenCodeSlot {
@@ -165,12 +167,16 @@ class SlotManager {
   }
 }
 
+export type CrashCallback = (interviewId: string, port: number, restartCount: number) => void;
+
 export class OpenCodeManager {
   private slotManager: SlotManager;
   private instances: Map<string, InstanceInfo>;
   private opencodePath: string;
   private bindHost: string;
   private healthCheckHost: string;
+  private onCrashCallback: CrashCallback | null = null;
+  private stoppingSessions: Set<string> = new Set();
 
   constructor(opencodePath: string = 'opencode') {
     this.bindHost = process.env.OPENCODE_BIND_HOST || '127.0.0.1';
@@ -178,6 +184,14 @@ export class OpenCodeManager {
     this.slotManager = new SlotManager(parseSlots(process.env.OPENCODE_SLOTS), this.bindHost);
     this.instances = new Map();
     this.opencodePath = opencodePath;
+  }
+
+  onInstanceCrash(callback: CrashCallback): void {
+    this.onCrashCallback = callback;
+  }
+
+  releasePort(port: number): void {
+    this.slotManager.release(port);
   }
 
   /**
@@ -221,7 +235,10 @@ export class OpenCodeManager {
       };
       fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(authJson, null, 2));
 
-      // Write opencode.json to {workDir}/opencode.json
+      // Write opencode.json to {configDir}/opencode/opencode.json (not workDir, to avoid exposing config to candidates)
+      const configDir = path.join(dataDir, 'config');
+      const opencodeConfigDir = path.join(configDir, 'opencode');
+      fs.mkdirSync(opencodeConfigDir, { recursive: true });
       const opencodeJson = {
         '$schema': 'https://opencode.ai/config.json',
         provider: {
@@ -239,39 +256,31 @@ export class OpenCodeManager {
           }
         }
       };
-      fs.writeFileSync(path.join(workDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
+      fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
     }
 
-    const child = spawn(this.opencodePath, [
-      'serve',
-      '--port', slot.port.toString(),
-      '--hostname', this.bindHost
-    ], {
-      env: { ...process.env, XDG_DATA_HOME: dataDir },
+    const configDir = path.join(dataDir, 'config');
+    const spawnArgs = ['serve', '--port', slot.port.toString(), '--hostname', this.bindHost];
+    const spawnEnv = { ...process.env, XDG_DATA_HOME: dataDir, XDG_CONFIG_HOME: configDir };
+    console.log(`[OpenCode] Starting instance for interview=${interviewId}`);
+    console.log(`[OpenCode]   command: ${this.opencodePath} ${spawnArgs.join(' ')}`);
+    console.log(`[OpenCode]   cwd (workDir): ${workDir}`);
+    console.log(`[OpenCode]   XDG_DATA_HOME (dataDir): ${dataDir}`);
+    console.log(`[OpenCode]   port: ${slot.port}`);
+
+    const child = spawn(this.opencodePath, spawnArgs, {
+      env: spawnEnv,
       cwd: workDir,
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    child.on('error', (error) => {
-      console.error('Failed to spawn OpenCode:', error);
-      console.error('Path:', this.opencodePath);
-      console.error('WorkDir:', workDir);
-      this.slotManager.release(slot.port);
-    });
-
-    child.stderr?.on('data', (data) => {
-      console.error('OpenCode stderr:', data.toString());
-    });
-
-    child.stdout?.on('data', (data) => {
-      console.log('OpenCode stdout:', data.toString());
     });
 
     if (!child.pid) {
       this.slotManager.release(slot.port);
       throw new Error('Failed to start OpenCode instance');
     }
+
+    console.log(`[OpenCode]   pid: ${child.pid}`);
 
     const instanceInfo: InstanceInfo = {
       interviewId,
@@ -282,20 +291,19 @@ export class OpenCodeManager {
       process: child,
       workDir,
       dataDir,
-      startedAt: new Date()
+      startedAt: new Date(),
+      apiKeyConfig,
+      restartCount: 0
     };
 
     this.instances.set(interviewId, instanceInfo);
-
-    child.on('exit', () => {
-      this.instances.delete(interviewId);
-      this.slotManager.release(slot.port);
-    });
+    this._setupChildProcess(child, instanceInfo);
 
     // Wait for health check
     const isHealthy = await this.waitForHealthy(slot.port);
     if (!isHealthy) {
       // Cleanup on failure
+      this.stoppingSessions.add(interviewId);
       try {
         child.kill();
       } catch (e) {
@@ -303,8 +311,12 @@ export class OpenCodeManager {
       }
       this.instances.delete(interviewId);
       this.slotManager.release(slot.port);
+      this.stoppingSessions.delete(interviewId);
       throw new Error(`OpenCode instance failed to start on port ${slot.port}`);
     }
+
+    // Wait for OpenCode to finish internal initialization (project/workspace tables in SQLite)
+    await this.waitForProjectReady(dataDir);
 
     return {
       host: slot.host,
@@ -315,11 +327,163 @@ export class OpenCodeManager {
     };
   }
 
+  async restartInstance(
+    interviewId: string,
+    port: number,
+    workDir: string,
+    dataDir: string,
+    apiKeyConfig?: ApiKeyConfig,
+    restartCount: number = 0
+  ): Promise<{ port: number; processId: number; dataDir: string }> {
+    const slot = this.slotManager.getSlotByPort(port);
+    if (!slot) {
+      throw new Error(`No slot found for port ${port}`);
+    }
+
+    // Rewrite config files if needed
+    if (apiKeyConfig) {
+      const authDir = path.join(dataDir, 'opencode');
+      fs.mkdirSync(authDir, { recursive: true });
+      const authJson = {
+        custom: {
+          type: 'api',
+          key: apiKeyConfig.apiKey
+        }
+      };
+      fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(authJson, null, 2));
+
+      const configDir = path.join(dataDir, 'config');
+      const opencodeConfigDir = path.join(configDir, 'opencode');
+      fs.mkdirSync(opencodeConfigDir, { recursive: true });
+      const opencodeJson = {
+        '$schema': 'https://opencode.ai/config.json',
+        provider: {
+          custom: {
+            npm: '@ai-sdk/openai-compatible',
+            name: 'Custom Provider',
+            options: {
+              baseURL: apiKeyConfig.baseUrl
+            },
+            models: {
+              [apiKeyConfig.modelId]: {
+                name: apiKeyConfig.modelId
+              }
+            }
+          }
+        }
+      };
+      fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
+    }
+
+    const configDir = path.join(dataDir, 'config');
+    const spawnArgs = ['serve', '--port', port.toString(), '--hostname', this.bindHost];
+    const spawnEnv = { ...process.env, XDG_DATA_HOME: dataDir, XDG_CONFIG_HOME: configDir };
+    console.log(`[OpenCode] Restarting instance for interview=${interviewId} (restartCount=${restartCount})`);
+    console.log(`[OpenCode]   command: ${this.opencodePath} ${spawnArgs.join(' ')}`);
+    console.log(`[OpenCode]   cwd (workDir): ${workDir}`);
+    console.log(`[OpenCode]   XDG_DATA_HOME (dataDir): ${dataDir}`);
+    console.log(`[OpenCode]   port: ${port}`);
+
+    const child = spawn(this.opencodePath, spawnArgs, {
+      env: spawnEnv,
+      cwd: workDir,
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    if (!child.pid) {
+      this.slotManager.release(port);
+      throw new Error('Failed to restart OpenCode instance');
+    }
+
+    console.log(`[OpenCode]   pid: ${child.pid}`);
+
+    const instanceInfo: InstanceInfo = {
+      interviewId,
+      host: slot.host,
+      workspaceUrl: slot.workspaceUrl,
+      port,
+      processId: child.pid,
+      process: child,
+      workDir,
+      dataDir,
+      startedAt: new Date(),
+      apiKeyConfig,
+      restartCount
+    };
+
+    this.instances.set(interviewId, instanceInfo);
+    this._setupChildProcess(child, instanceInfo);
+
+    const isHealthy = await this.waitForHealthy(port);
+    if (!isHealthy) {
+      this.stoppingSessions.add(interviewId);
+      try {
+        child.kill();
+      } catch (e) {
+        // Ignore
+      }
+      this.instances.delete(interviewId);
+      this.slotManager.release(port);
+      this.stoppingSessions.delete(interviewId);
+      throw new Error(`OpenCode instance failed to restart on port ${port}`);
+    }
+
+    // Wait for OpenCode to finish internal initialization (project/workspace tables in SQLite)
+    await this.waitForProjectReady(dataDir);
+
+    return { port, processId: child.pid, dataDir };
+  }
+
+  private _setupChildProcess(child: ChildProcess, instanceInfo: InstanceInfo): void {
+    const { interviewId, port } = instanceInfo;
+
+    child.on('error', (error) => {
+      console.error('Failed to spawn OpenCode:', error);
+      console.error('Path:', this.opencodePath);
+      console.error('WorkDir:', instanceInfo.workDir);
+      if (!this.stoppingSessions.has(interviewId)) {
+        this.instances.delete(interviewId);
+        // Don't release port — keep it for restart
+        if (this.onCrashCallback) {
+          this.onCrashCallback(interviewId, port, instanceInfo.restartCount);
+        }
+      }
+    });
+
+    child.stderr?.on('data', (data) => {
+      console.error('OpenCode stderr:', data.toString());
+    });
+
+    child.stdout?.on('data', (data) => {
+      console.log('OpenCode stdout:', data.toString());
+    });
+
+    child.on('exit', (code) => {
+      if (this.stoppingSessions.has(interviewId)) {
+        // Intentional stop — normal cleanup
+        this.instances.delete(interviewId);
+        this.slotManager.release(port);
+        this.stoppingSessions.delete(interviewId);
+      } else {
+        // Crash — delete instance but keep port reserved for restart
+        const restartCount = instanceInfo.restartCount;
+        this.instances.delete(interviewId);
+        console.error(`OpenCode process for interview ${interviewId} exited unexpectedly with code ${code}`);
+        if (this.onCrashCallback) {
+          this.onCrashCallback(interviewId, port, restartCount);
+        }
+      }
+    });
+  }
+
   async stopInstance(interviewId: string): Promise<void> {
     const instance = this.instances.get(interviewId);
     if (!instance) {
       return;
     }
+
+    this.stoppingSessions.add(interviewId);
 
     try {
       instance.process.kill();
@@ -327,8 +491,9 @@ export class OpenCodeManager {
       console.error(`Failed to kill process ${instance.processId}:`, error);
     }
 
-    this.instances.delete(interviewId);
-    this.slotManager.release(instance.port);
+    // Note: instances.delete, slotManager.release, and stoppingSessions.delete
+    // are handled by the exit handler in _setupChildProcess to avoid race conditions.
+    // process.kill() is async (sends signal), so the exit handler fires later.
   }
 
   async cleanupExpired(): Promise<void> {
@@ -381,5 +546,36 @@ export class OpenCodeManager {
     }
 
     return false;
+  }
+
+  /**
+   * Wait for OpenCode to finish internal initialization by checking that the
+   * SQLite database has a valid project entry (worktree != '/').
+   * Falls back to a fixed delay if the database file doesn't exist yet.
+   */
+  private async waitForProjectReady(dataDir: string, timeout: number = 10000): Promise<void> {
+    const dbPath = path.join(dataDir, 'opencode', 'opencode.db');
+    const startTime = Date.now();
+    const interval = 500;
+
+    while (Date.now() - startTime < timeout) {
+      try {
+        if (fs.existsSync(dbPath)) {
+          // Check file size as a rough indicator that DB has been written to
+          const stats = fs.statSync(dbPath);
+          if (stats.size > 4096) {
+            console.log(`[OpenCode] Project DB ready (${stats.size} bytes) in ${Date.now() - startTime}ms`);
+            // Give a small additional buffer for SQLite writes to flush
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return;
+          }
+        }
+      } catch {
+        // File might not exist yet, keep polling
+      }
+      await new Promise(resolve => setTimeout(resolve, interval));
+    }
+
+    console.warn(`[OpenCode] Project DB readiness check timed out after ${timeout}ms, proceeding anyway`);
   }
 }

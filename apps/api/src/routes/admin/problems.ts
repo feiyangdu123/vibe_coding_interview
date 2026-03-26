@@ -173,6 +173,19 @@ export async function problemRoutes(fastify: FastifyInstance) {
         return;
       }
 
+      // Check if this org already copied this template
+      const existing = await prisma.problem.findFirst({
+        where: {
+          organizationId: request.user!.organizationId!,
+          sourceTemplateId: template.id,
+          deletedAt: null
+        }
+      });
+
+      if (existing) {
+        return { ...existing, alreadyExists: true };
+      }
+
       const problem = await prisma.problem.create({
         data: {
           title: template.title,
@@ -187,7 +200,8 @@ export async function problemRoutes(fastify: FastifyInstance) {
           problemType: template.problemType,
           difficulty: template.difficulty,
           tags: template.tags,
-          scoringRubric: template.scoringRubric
+          scoringRubric: template.scoringRubric,
+          sourceTemplateId: template.id
         }
       });
 

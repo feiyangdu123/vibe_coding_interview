@@ -24,6 +24,8 @@ import {
 let openCodeManagerInstance: OpenCodeManager | null = null;
 let isInitialized = false;
 
+const MAX_RESTART_ATTEMPTS = 3;
+
 type PrismaTx = Prisma.TransactionClient;
 type InterviewWithRelations = Prisma.InterviewGetPayload<{
   include: { candidate: true; problem: true }
@@ -64,6 +66,7 @@ function cleanupWorkDir(workDir: string | null | undefined) {
 export async function getOpenCodeManager(): Promise<OpenCodeManager> {
   if (!openCodeManagerInstance) {
     openCodeManagerInstance = new OpenCodeManager(process.env.OPENCODE_PATH || 'opencode');
+    openCodeManagerInstance.onInstanceCrash(handleOpenCodeCrash);
   }
 
   if (!isInitialized) {
@@ -105,6 +108,106 @@ export async function withWorkspaceUrl<T extends { port: number | null | undefin
     ...interview,
     workspaceUrl
   };
+}
+
+async function handleOpenCodeCrash(interviewId: string, port: number, restartCount: number) {
+  console.log(`OpenCode crash detected for interview ${interviewId} (port ${port}, restartCount ${restartCount})`);
+
+  try {
+    const manager = await getOpenCodeManager();
+
+    const interview = await prisma.interview.findUnique({
+      where: { id: interviewId },
+      select: { status: true, organizationId: true, workDir: true, dataDir: true }
+    });
+
+    if (!interview || interview.status !== InterviewStatus.IN_PROGRESS) {
+      manager.releasePort(port);
+      return;
+    }
+
+    if (restartCount >= MAX_RESTART_ATTEMPTS) {
+      console.error(`Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached for interview ${interviewId}, voiding interview`);
+      manager.releasePort(port);
+      await voidInterviewForSystemError(interviewId, `OpenCode process crashed ${restartCount} times, max retries exceeded`);
+      return;
+    }
+
+    // Mark as restarting
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        openCodeStatus: 'restarting',
+        healthStatus: 'unhealthy',
+        lastHealthCheck: new Date()
+      }
+    });
+
+    // Log restart event
+    await prisma.interviewEvent.create({
+      data: {
+        interviewId,
+        eventType: InterviewEventType.SYSTEM_ERROR,
+        metadata: { type: 'opencode_restart', attempt: restartCount + 1, port }
+      }
+    });
+
+    // Get API key config for restart
+    const apiKeyConfig = await prisma.organizationApiKeyConfig.findFirst({
+      where: { organizationId: interview.organizationId, isSelected: true },
+      select: { baseUrl: true, apiKey: true, modelId: true }
+    });
+
+    const result = await manager.restartInstance(
+      interviewId,
+      port,
+      interview.workDir!,
+      interview.dataDir!,
+      apiKeyConfig && apiKeyConfig.modelId
+        ? { baseUrl: apiKeyConfig.baseUrl, apiKey: apiKeyConfig.apiKey, modelId: apiKeyConfig.modelId }
+        : undefined,
+      restartCount + 1
+    );
+
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        processId: result.processId,
+        openCodeStatus: 'ready',
+        healthStatus: 'healthy',
+        lastHealthCheck: new Date()
+      }
+    });
+
+    console.log(`OpenCode restarted successfully for interview ${interviewId} on port ${port} (attempt ${restartCount + 1})`);
+  } catch (error) {
+    console.error(`Failed to restart OpenCode for interview ${interviewId}:`, error);
+
+    try {
+      const manager = await getOpenCodeManager();
+
+      if (restartCount + 1 >= MAX_RESTART_ATTEMPTS) {
+        manager.releasePort(port);
+        await voidInterviewForSystemError(
+          interviewId,
+          `OpenCode restart failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      } else {
+        // Release port since restart failed — next crash will allocate new
+        manager.releasePort(port);
+        await prisma.interview.update({
+          where: { id: interviewId },
+          data: {
+            openCodeStatus: 'failed',
+            healthStatus: 'unhealthy',
+            processError: error instanceof Error ? error.message : 'Restart failed'
+          }
+        });
+      }
+    } catch (innerError) {
+      console.error(`Failed to handle restart failure for interview ${interviewId}:`, innerError);
+    }
+  }
 }
 
 async function startOpenCodeForInterview(interviewId: string, workDir: string, organizationId: string) {
@@ -225,7 +328,11 @@ function copyDirectorySync(src: string, dest: string): void {
   }
 }
 
-function prepareInterviewWorkspace(workDirTemplate: string, token: string) {
+function prepareInterviewWorkspace(
+  workDirTemplate: string,
+  token: string,
+  problem: { title: string; description: string; requirements: string }
+) {
   const interviewsBaseDir = path.join(os.homedir(), '.local', 'share', 'vibe-interviews');
   const interviewWorkDir = path.join(interviewsBaseDir, token);
 
@@ -236,14 +343,29 @@ function prepareInterviewWorkspace(workDirTemplate: string, token: string) {
 
   copyDirectorySync(resolvedTemplate, interviewWorkDir);
 
+  // Write problem description file
+  const problemContent = `# ${problem.title}
+
+## 题目描述
+
+${problem.description}
+
+## 题目要求
+
+${problem.requirements}
+`;
+  fs.writeFileSync(path.join(interviewWorkDir, '题目与要求.md'), problemContent, 'utf-8');
+
   // Initialize git repo so OpenCode recognizes this as a project
   try {
+    console.log(`[Workspace] Initializing git in: ${interviewWorkDir}`);
     execSync('git init && git add -A && git commit -m "Initial workspace"', {
       cwd: interviewWorkDir,
       stdio: 'ignore',
     });
+    console.log(`[Workspace] Git initialized successfully in: ${interviewWorkDir}`);
   } catch (error) {
-    console.warn(`Failed to initialize git repo in ${interviewWorkDir}:`, error instanceof Error ? error.message : error);
+    console.warn(`[Workspace] Failed to initialize git repo in ${interviewWorkDir}:`, error instanceof Error ? error.message : error);
   }
 
   return interviewWorkDir;
@@ -410,7 +532,7 @@ export async function createInterview(
   const problem = await getProblemForOrganization(data.problemId, organizationId);
   await getInterviewerForOrganization(interviewerId, organizationId);
 
-  const workDir = prepareInterviewWorkspace(problem.workDirTemplate, token);
+  const workDir = prepareInterviewWorkspace(problem.workDirTemplate, token, problem);
 
   try {
     const interview = await prisma.$transaction(async (tx) => {
@@ -489,7 +611,7 @@ export async function createBatchInterviews(
       const token = nanoid(16);
       preparedInterviews.push({
         token,
-        workDir: prepareInterviewWorkspace(problem.workDirTemplate, token),
+        workDir: prepareInterviewWorkspace(problem.workDirTemplate, token, problem),
         candidateData
       });
     }

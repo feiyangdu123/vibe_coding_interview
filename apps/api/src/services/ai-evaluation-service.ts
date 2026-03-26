@@ -1,10 +1,18 @@
 import { prisma, InterviewEventType } from '@vibe/database';
 import { getChatHistoryFromDataDir } from './chat-history-service';
 import { spawn } from 'child_process';
-import { createEvaluationSnapshot, removeEvaluationSnapshot } from './opencode-runtime-service';
+import { EventEmitter } from 'events';
 
 const EVALUATION_TIMEOUT = parseInt(process.env.EVALUATION_TIMEOUT || '600000', 10); // 10 minutes
 const MAX_RETRIES = parseInt(process.env.MAX_EVALUATION_RETRIES || '2', 10);
+const CLAUDE_CODE_PATH = process.env.CLAUDE_CODE_PATH || 'claude';
+
+// runId -> EventEmitter, used for SSE streaming
+const activeEvaluationStreams = new Map<string, EventEmitter>();
+
+export function getEvaluationStream(runId: string): EventEmitter | null {
+  return activeEvaluationStreams.get(runId) || null;
+}
 
 const EVALUATION_PROMPT_TEMPLATE = `你是一个评估候选人 vibe coding 能力的专家。请根据候选人与 AI 编程助手的交互历史，对其能力进行评分。
 
@@ -122,167 +130,60 @@ export async function evaluateInterview(
       throw new Error('Interview workspace or data directory not found');
     }
 
-    const evaluationSnapshot = await createEvaluationSnapshot(
-      interviewId,
-      run.id,
-      interview.dataDir,
-      interview.workDir
-    );
+    // 直接从原始 dataDir 读取聊天历史（Claude Code -p 是无状态的，无需快照）
+    const chatHistoryResponse = await getChatHistoryFromDataDir(interview.dataDir);
 
-    try {
-      // 获取聊天历史
-      const chatHistoryResponse = await getChatHistoryFromDataDir(evaluationSnapshot.dataDir);
+    if (chatHistoryResponse.error) {
+      throw new Error(chatHistoryResponse.error);
+    }
 
-      if (chatHistoryResponse.error) {
-        throw new Error(chatHistoryResponse.error);
-      }
+    // 候选人没有与 AI 交互（没有 session 或没有消息），直接给零分
+    const hasNoInteraction = !chatHistoryResponse.sessionId
+      || !chatHistoryResponse.messages
+      || chatHistoryResponse.messages.length === 0;
 
-      // 候选人没有与 AI 交互（没有 session 或没有消息），直接给零分
-      const hasNoInteraction = !chatHistoryResponse.sessionId
-        || !chatHistoryResponse.messages
-        || chatHistoryResponse.messages.length === 0;
+    if (hasNoInteraction) {
+      console.log(`[Evaluation ${interviewId}] No chat history found — candidate did not interact. Assigning zero score.`);
 
-      if (hasNoInteraction) {
-        console.log(`[Evaluation ${interviewId}] No chat history found — candidate did not interact. Assigning zero score.`);
-
-        const zeroResult: EvaluationResult = {
-          score: 0,
-          result: '候选人未与 AI 助手进行任何交互，无法评估。',
-          details: {
-            totalScore: 0,
-            dimensions: [
-              { name: '需求拆分能力', score: 0, reasoning: '候选人未进行任何交互' },
-              { name: '技术方案选择', score: 0, reasoning: '候选人未进行任何交互' },
-              { name: '研究优先方法论', score: 0, reasoning: '候选人未进行任何交互' },
-              { name: '沟通清晰度', score: 0, reasoning: '候选人未进行任何交互' },
-              { name: '迭代改进', score: 0, reasoning: '候选人未进行任何交互' },
-            ],
-            summary: '候选人在面试期间未与 AI 编程助手进行任何交互，无法对其 vibe coding 能力进行评估。'
-          }
-        };
-
-        // 更新 AiEvaluationRun 记录
-        await prisma.aiEvaluationRun.update({
-          where: { id: run.id },
-          data: {
-            status: 'completed',
-            score: 0,
-            details: zeroResult.details as any,
-            rawOutput: zeroResult.result,
-            completedAt: new Date(),
-            retries: retryCount
-          }
-        });
-
-        const updateData: any = {
-          aiEvaluationStatus: 'completed',
-          aiEvaluationScore: 0,
-          aiEvaluationDetails: JSON.stringify(zeroResult.details),
-          aiEvaluationRaw: zeroResult.result,
-          aiEvaluatedAt: new Date(),
-          aiEvaluationError: null,
-          currentAiRunId: run.id
-        };
-
-        if (interview.manualReviewStatus !== 'completed') {
-          updateData.manualReviewStatus = 'pending';
+      const zeroResult: EvaluationResult = {
+        score: 0,
+        result: '候选人未与 AI 助手进行任何交互，无法评估。',
+        details: {
+          totalScore: 0,
+          dimensions: [
+            { name: '需求拆分能力', score: 0, reasoning: '候选人未进行任何交互' },
+            { name: '技术方案选择', score: 0, reasoning: '候选人未进行任何交互' },
+            { name: '研究优先方法论', score: 0, reasoning: '候选人未进行任何交互' },
+            { name: '沟通清晰度', score: 0, reasoning: '候选人未进行任何交互' },
+            { name: '迭代改进', score: 0, reasoning: '候选人未进行任何交互' },
+          ],
+          summary: '候选人在面试期间未与 AI 编程助手进行任何交互，无法对其 vibe coding 能力进行评估。'
         }
-
-        await prisma.interview.update({
-          where: { id: interviewId },
-          data: updateData
-        });
-
-        await prisma.interviewEvent.create({
-          data: {
-            interviewId,
-            eventType: InterviewEventType.AI_EVALUATION_FINISHED,
-            metadata: { version: nextVersion, score: 0, runId: run.id, noInteraction: true }
-          }
-        });
-
-        console.log(`[Evaluation ${interviewId}] Completed (version ${nextVersion}): 0/10 (no interaction)`);
-        return;
-      }
-
-      const sessionId = chatHistoryResponse.sessionId;
-      if (!sessionId) {
-        throw new Error('Chat history session ID is missing');
-      }
-
-      // 格式化聊天历史 - 提取文本内容
-      const formattedHistory = (chatHistoryResponse.messages as any[])
-        .map((msg: any, idx: any) => {
-          const textParts = msg.parts
-            .filter((part: any) => part.type === 'text' || part.type === 'reasoning')
-            .map((part: any) => part.content)
-            .join('\n');
-          return `[${idx + 1}] ${msg.role === 'user' ? '候选人' : 'AI'}: ${textParts}`;
-        })
-        .filter((line: any) => line.trim().length > 0)
-        .join('\n\n');
-
-      // 提取题目快照信息
-      const problemSnapshot = interview.problemSnapshot as any || {};
-      const evaluationCriteriaSnapshot = interview.evaluationCriteriaSnapshot as any || {};
-      const endReasonMap: Record<string, string> = {
-        TIME_UP: '时间到',
-        CANDIDATE_SUBMIT: '候选人提交',
-        INTERVIEWER_STOP: '面试官终止',
-        SYSTEM_ERROR: '系统错误'
       };
-
-      // 构建增强 prompt
-      const prompt = EVALUATION_PROMPT_TEMPLATE
-        .replace('{PROBLEM_TITLE}', problemSnapshot.title || interview.problem.title || '未知')
-        .replace('{PROBLEM_REQUIREMENTS}', problemSnapshot.requirements || interview.problem.requirements || '无')
-        .replace('{SCORING_RUBRIC}', evaluationCriteriaSnapshot.scoringRubric || '无')
-        .replace('{DURATION}', String(interview.duration))
-        .replace('{END_REASON}', interview.endReason ? (endReasonMap[interview.endReason] || interview.endReason) : '未知')
-        .replace('{PROJECT_PATH}', evaluationSnapshot.workDir)
-        .replace('{CHAT_HISTORY}', formattedHistory);
-
-      // 执行评估
-      console.log(`[Evaluation ${interviewId}] Starting OpenCode evaluation (version ${nextVersion})...`);
-      const rawOutput = await runOpenCodeEvaluation(
-        prompt,
-        evaluationSnapshot.workDir,
-        evaluationSnapshot.dataDir,
-        sessionId,
-        EVALUATION_TIMEOUT
-      );
-
-      console.log(`[Evaluation ${interviewId}] Raw output received:`, rawOutput.substring(0, 200));
-
-      // 解析结果
-      const result = parseEvaluationResult(rawOutput);
 
       // 更新 AiEvaluationRun 记录
       await prisma.aiEvaluationRun.update({
         where: { id: run.id },
         data: {
           status: 'completed',
-          score: result.score,
-          details: result.details as any,
-          rawOutput,
+          score: 0,
+          details: zeroResult.details as any,
+          rawOutput: zeroResult.result,
           completedAt: new Date(),
           retries: retryCount
         }
       });
 
-      // 更新 Interview 快照字段和 currentAiRunId
-      // 如果 manualReviewStatus 还不是 'completed'，设置为 'pending'
       const updateData: any = {
         aiEvaluationStatus: 'completed',
-        aiEvaluationScore: result.score,
-        aiEvaluationDetails: JSON.stringify(result.details),
-        aiEvaluationRaw: rawOutput,
+        aiEvaluationScore: 0,
+        aiEvaluationDetails: JSON.stringify(zeroResult.details),
+        aiEvaluationRaw: zeroResult.result,
         aiEvaluatedAt: new Date(),
         aiEvaluationError: null,
         currentAiRunId: run.id
       };
 
-      // 只有未复核的面试才设置 manualReviewStatus 为 pending
       if (interview.manualReviewStatus !== 'completed') {
         updateData.manualReviewStatus = 'pending';
       }
@@ -292,19 +193,107 @@ export async function evaluateInterview(
         data: updateData
       });
 
-      // 记录 AI 评估完成事件
       await prisma.interviewEvent.create({
         data: {
           interviewId,
           eventType: InterviewEventType.AI_EVALUATION_FINISHED,
-          metadata: { version: nextVersion, score: result.score, runId: run.id }
+          metadata: { version: nextVersion, score: 0, runId: run.id, noInteraction: true }
         }
       });
 
-      console.log(`[Evaluation ${interviewId}] Completed (version ${nextVersion}): ${result.score}/10`);
-    } finally {
-      removeEvaluationSnapshot(interviewId, run.id);
+      console.log(`[Evaluation ${interviewId}] Completed (version ${nextVersion}): 0/10 (no interaction)`);
+      return;
     }
+
+    // 格式化聊天历史 - 提取文本内容
+    const formattedHistory = (chatHistoryResponse.messages as any[])
+      .map((msg: any, idx: any) => {
+        const textParts = msg.parts
+          .filter((part: any) => part.type === 'text' || part.type === 'reasoning')
+          .map((part: any) => part.content)
+          .join('\n');
+        return `[${idx + 1}] ${msg.role === 'user' ? '候选人' : 'AI'}: ${textParts}`;
+      })
+      .filter((line: any) => line.trim().length > 0)
+      .join('\n\n');
+
+    // 提取题目快照信息
+    const problemSnapshot = interview.problemSnapshot as any || {};
+    const evaluationCriteriaSnapshot = interview.evaluationCriteriaSnapshot as any || {};
+    const endReasonMap: Record<string, string> = {
+      TIME_UP: '时间到',
+      CANDIDATE_SUBMIT: '候选人提交',
+      INTERVIEWER_STOP: '面试官终止',
+      SYSTEM_ERROR: '系统错误'
+    };
+
+    // 构建增强 prompt
+    const prompt = EVALUATION_PROMPT_TEMPLATE
+      .replace('{PROBLEM_TITLE}', problemSnapshot.title || interview.problem.title || '未知')
+      .replace('{PROBLEM_REQUIREMENTS}', problemSnapshot.requirements || interview.problem.requirements || '无')
+      .replace('{SCORING_RUBRIC}', evaluationCriteriaSnapshot.scoringRubric || '无')
+      .replace('{DURATION}', String(interview.duration))
+      .replace('{END_REASON}', interview.endReason ? (endReasonMap[interview.endReason] || interview.endReason) : '未知')
+      .replace('{PROJECT_PATH}', interview.workDir)
+      .replace('{CHAT_HISTORY}', formattedHistory);
+
+    // 执行评估（使用 Claude Code CLI）
+    console.log(`[Evaluation ${interviewId}] Starting Claude Code evaluation (version ${nextVersion})...`);
+    const rawOutput = await runClaudeCodeEvaluation(
+      prompt,
+      interview.workDir,
+      run.id,
+      EVALUATION_TIMEOUT
+    );
+
+    console.log(`[Evaluation ${interviewId}] Raw output received:`, rawOutput.substring(0, 200));
+
+    // 解析结果
+    const result = parseEvaluationResult(rawOutput);
+
+    // 更新 AiEvaluationRun 记录
+    await prisma.aiEvaluationRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'completed',
+        score: result.score,
+        details: result.details as any,
+        rawOutput,
+        completedAt: new Date(),
+        retries: retryCount
+      }
+    });
+
+    // 更新 Interview 快照字段和 currentAiRunId
+    const updateData: any = {
+      aiEvaluationStatus: 'completed',
+      aiEvaluationScore: result.score,
+      aiEvaluationDetails: JSON.stringify(result.details),
+      aiEvaluationRaw: rawOutput,
+      aiEvaluatedAt: new Date(),
+      aiEvaluationError: null,
+      currentAiRunId: run.id
+    };
+
+    if (interview.manualReviewStatus !== 'completed') {
+      updateData.manualReviewStatus = 'pending';
+    }
+
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: updateData
+    });
+
+    // 记录 AI 评估完成事件
+    await prisma.interviewEvent.create({
+      data: {
+        interviewId,
+        eventType: InterviewEventType.AI_EVALUATION_FINISHED,
+        metadata: { version: nextVersion, score: result.score, runId: run.id }
+      }
+    });
+
+    console.log(`[Evaluation ${interviewId}] Completed (version ${nextVersion}): ${result.score}/10`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[Evaluation ${interviewId}] Failed (version ${nextVersion}):`, errorMessage);
@@ -378,64 +367,96 @@ export async function getEvaluationRun(runId: string): Promise<any | null> {
 }
 
 /**
- * 使用 OpenCode 执行评估
+ * 使用 Claude Code CLI 执行评估（流式输出）
  */
-async function runOpenCodeEvaluation(
+async function runClaudeCodeEvaluation(
   prompt: string,
   workDir: string,
-  dataDir: string,
-  sessionId: string,
+  runId: string,
   timeout: number
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const opencodePath = process.env.OPENCODE_PATH || 'opencode';
+    const emitter = new EventEmitter();
+    activeEvaluationStreams.set(runId, emitter);
 
-    // 设置环境变量，指向面试的数据目录（使用与面试时相同的 dataDir）
-    const env = {
-      ...process.env,
-      XDG_DATA_HOME: dataDir
-    };
+    console.log(`[Claude Code] Spawning: ${CLAUDE_CODE_PATH} -p`);
+    console.log(`[Claude Code] Working directory: ${workDir}`);
 
-    console.log(`[OpenCode] Spawning: ${opencodePath} run`);
-    console.log(`[OpenCode] Working directory: ${workDir}`);
-    console.log(`[OpenCode] Data directory: ${dataDir}`);
-
-    const child = spawn(opencodePath, ['run', '--session', sessionId, '--fork', '--dir', workDir, prompt], {
+    const child = spawn(CLAUDE_CODE_PATH, [
+      '-p',
+      '--verbose',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      prompt
+    ], {
       cwd: workDir,
-      env,
+      env: process.env,
       shell: false
     });
 
-    // 立即关闭 stdin，告诉 opencode 不会有更多输入
     child.stdin.end();
 
-    let stdout = '';
+    let accumulatedText = '';
     let stderr = '';
     let isResolved = false;
+    let lineBuffer = '';
 
     child.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      console.log(`[OpenCode stdout]`, chunk);
+      lineBuffer += data.toString();
+      const lines = lineBuffer.split('\n');
+      // Keep the last incomplete line in the buffer
+      lineBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          // Extract text content from stream-json events
+          const text = extractTextFromStreamEvent(event);
+          if (text) {
+            accumulatedText += text;
+            emitter.emit('data', text);
+          }
+        } catch {
+          // Non-JSON line, ignore
+        }
+      }
     });
 
     child.stderr.on('data', (data) => {
       const chunk = data.toString();
       stderr += chunk;
-      console.log(`[OpenCode stderr]`, chunk);
+      console.log(`[Claude Code stderr]`, chunk);
     });
 
     child.on('close', (code, signal) => {
+      // Process any remaining buffer
+      if (lineBuffer.trim()) {
+        try {
+          const event = JSON.parse(lineBuffer);
+          const text = extractTextFromStreamEvent(event);
+          if (text) {
+            accumulatedText += text;
+            emitter.emit('data', text);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (isResolved) return;
       isResolved = true;
 
-      console.log(`[OpenCode] Process closed with code=${code}, signal=${signal}`);
-      console.log(`[OpenCode] stdout length: ${stdout.length}, stderr length: ${stderr.length}`);
+      console.log(`[Claude Code] Process closed with code=${code}, signal=${signal}`);
+
+      emitter.emit('done');
+      activeEvaluationStreams.delete(runId);
 
       if (code === 0) {
-        resolve(stdout);
+        // If stream-json produced no text, fall back to raw stdout
+        resolve(accumulatedText || '');
       } else {
-        const errorMsg = `OpenCode evaluation failed with code ${code}, signal ${signal}\nstderr: ${stderr}\nstdout: ${stdout}`;
+        const errorMsg = `Claude Code evaluation failed with code ${code}, signal ${signal}\nstderr: ${stderr}`;
         reject(new Error(errorMsg));
       }
     });
@@ -444,8 +465,10 @@ async function runOpenCodeEvaluation(
       if (isResolved) return;
       isResolved = true;
 
-      console.error(`[OpenCode] Process error:`, error);
-      reject(new Error(`Failed to spawn OpenCode: ${error.message}`));
+      console.error(`[Claude Code] Process error:`, error);
+      emitter.emit('error', error.message);
+      activeEvaluationStreams.delete(runId);
+      reject(new Error(`Failed to spawn Claude Code: ${error.message}`));
     });
 
     // 超时处理
@@ -453,25 +476,53 @@ async function runOpenCodeEvaluation(
       if (isResolved) return;
       isResolved = true;
 
-      console.error(`[OpenCode] Timeout after ${timeout}ms, killing process`);
+      console.error(`[Claude Code] Timeout after ${timeout}ms, killing process`);
       child.kill('SIGTERM');
 
-      // Force kill after 5 seconds if still alive
       setTimeout(() => {
         if (!child.killed) {
-          console.error(`[OpenCode] Force killing process`);
+          console.error(`[Claude Code] Force killing process`);
           child.kill('SIGKILL');
         }
       }, 5000);
 
+      emitter.emit('error', `Evaluation timeout after ${timeout}ms`);
+      activeEvaluationStreams.delete(runId);
       reject(new Error(`Evaluation timeout after ${timeout}ms`));
     }, timeout);
 
-    // Clear timeout if process completes
     child.on('exit', () => {
       clearTimeout(timeoutHandle);
     });
   });
+}
+
+/**
+ * Extract text content from a Claude Code stream-json event
+ */
+function extractTextFromStreamEvent(event: any): string {
+  // Claude Code stream-json format:
+  // { "type": "assistant", "message": { "content": [{ "type": "text", "text": "..." }] } }
+  // or partial message updates
+  if (event.type === 'assistant' && event.message?.content) {
+    return event.message.content
+      .filter((block: any) => block.type === 'text')
+      .map((block: any) => block.text || '')
+      .join('');
+  }
+
+  // Content block delta
+  if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+    return event.delta.text || '';
+  }
+
+  // Result message at end
+  if (event.type === 'result' && event.result) {
+    // The final result text — only use if we haven't accumulated any text yet
+    return '';
+  }
+
+  return '';
 }
 
 /**
@@ -503,8 +554,6 @@ function parseEvaluationResult(rawOutput: string): EvaluationResult {
     ];
 
     for (const dimName of dimensionNames) {
-      // 匹配格式: "1. 需求拆分能力: X/2 - 原因"
-      // 使用更宽松的匹配，捕获到下一个数字开头的行或整体评价之前
       const dimRegex = new RegExp(`\\d+\\.\\s*${dimName}[：:]\\s*(\\d+(?:\\.\\d+)?)\\s*\\/\\s*2\\s*[-–—]\\s*(.+?)(?=\\n\\d+\\.|\\n整体评价|$)`, 's');
       const dimMatch = rawOutput.match(dimRegex);
 
@@ -523,7 +572,6 @@ function parseEvaluationResult(rawOutput: string): EvaluationResult {
 
     console.log(`[Evaluation] Parsed ${dimensions.length} dimensions, summary length: ${summary.length}`);
 
-    // 返回分数和完整的评估文本
     return {
       score,
       result: rawOutput.trim(),

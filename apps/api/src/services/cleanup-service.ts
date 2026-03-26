@@ -6,9 +6,6 @@ import {
   markInterviewAsNoShow,
   voidInterviewForSystemError
 } from './interview-service';
-import { cleanupStaleEvaluationSnapshots } from './opencode-runtime-service';
-
-const EVALUATION_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function startCleanupJob() {
   cron.schedule('*/1 * * * *', async () => {
@@ -82,9 +79,28 @@ export function startCleanupJob() {
     });
 
     for (const interview of inProgress) {
+      // Skip interviews that are currently restarting
+      if (interview.openCodeStatus === 'restarting') {
+        // Safety timeout: if restarting for over 2 minutes, force void
+        const lastCheck = interview.lastHealthCheck;
+        if (lastCheck && (now.getTime() - lastCheck.getTime() > 2 * 60 * 1000)) {
+          console.error(`Interview ${interview.id} stuck in restarting state for over 2 minutes, voiding`);
+          await voidInterviewForSystemError(interview.id, 'OpenCode restart timed out');
+        }
+        continue;
+      }
+
       const instance = manager.getInstance(interview.id);
 
       if (!instance) {
+        // Only void if not being handled by crash callback (check openCodeStatus)
+        const fresh = await prisma.interview.findUnique({
+          where: { id: interview.id },
+          select: { openCodeStatus: true }
+        });
+        if (fresh?.openCodeStatus === 'restarting') {
+          continue;
+        }
         await voidInterviewForSystemError(interview.id, 'Process crashed unexpectedly');
       } else if (interview.port) {
         // Perform health check
@@ -98,7 +114,5 @@ export function startCleanupJob() {
         });
       }
     }
-
-    cleanupStaleEvaluationSnapshots(EVALUATION_SNAPSHOT_MAX_AGE_MS);
   });
 }

@@ -93,6 +93,7 @@ export default function InterviewsPage() {
   const [chatDialogOpen, setChatDialogOpen] = useState(false)
   const [evaluationDialogOpen, setEvaluationDialogOpen] = useState(false)
   const [selectedInterviewId, setSelectedInterviewId] = useState<string | null>(null)
+  const [selectedInterviewStatus, setSelectedInterviewStatus] = useState<string | undefined>(undefined)
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -513,6 +514,7 @@ export default function InterviewsPage() {
                                 disabled={interview.aiEvaluationStatus !== 'completed'}
                                 onClick={() => {
                                   setSelectedInterviewId(interview.id)
+                                  setSelectedInterviewStatus(interview.status)
                                   setEvaluationDialogOpen(true)
                                 }}
                               >
@@ -600,6 +602,7 @@ export default function InterviewsPage() {
         open={evaluationDialogOpen}
         onOpenChange={setEvaluationDialogOpen}
         interviewId={selectedInterviewId}
+        interviewStatus={selectedInterviewStatus}
       />
     </div>
   )
