@@ -121,6 +121,11 @@ const FILTERED_KEYS = new Set([
   'triggeredBy',
   'noInteraction',
   'runId',
+  'host',
+  'workspaceUrl',
+  'hostname',
+  'slot',
+  'endedAt',
 ])
 
 /** Chinese labels for common metadata keys */
@@ -205,7 +210,7 @@ export function metadataToDescription(
   }
 
   if (eventType === 'AI_EVALUATION_FINISHED' && metadata.score != null) {
-    return `评分：${Number(metadata.score).toFixed(1)}/10`
+    return `评分：${Number(metadata.score).toFixed(1)}/100`
   }
 
   if (metadata.error) {

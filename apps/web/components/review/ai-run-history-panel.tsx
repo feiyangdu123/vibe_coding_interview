@@ -21,7 +21,6 @@ interface AiRunHistoryPanelProps {
   history: AiEvaluationRun[]
   selectedRunId: string | null
   onSelectRun: (runId: string) => void
-  devMode?: boolean
 }
 
 const statusConfig: Record<string, { label: string; variant: 'success' | 'error' | 'warning' | 'info' | 'default' }> = {
@@ -44,7 +43,7 @@ function getOrdinalLabel(index: number): string {
   return `第 ${index + 1} 次评估`
 }
 
-export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun, devMode = false }: AiRunHistoryPanelProps) {
+export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun }: AiRunHistoryPanelProps) {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
 
   // Don't render if only one run (the main evaluation card already shows it)
@@ -89,10 +88,10 @@ export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun, devMode
                 <Badge variant={config.variant}>{config.label}</Badge>
                 {run.score != null && (
                   <Badge
-                    variant={run.score >= 7 ? 'success' : run.score >= 5 ? 'warning' : 'error'}
+                    variant={run.score >= 70 ? 'success' : run.score >= 50 ? 'warning' : 'error'}
                     className="font-semibold"
                   >
-                    {run.score.toFixed(1)}/10
+                    {run.score.toFixed(1)}/100
                   </Badge>
                 )}
               </div>
@@ -121,20 +120,24 @@ export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun, devMode
               </div>
             )}
 
-            {/* Dev mode: show raw output */}
-            {isExpanded && devMode && run.rawOutput && (
-              <div className="border-t bg-gray-100 p-4">
-                <h4 className="text-xs font-medium text-gray-500 mb-2">原始评估输出</h4>
-                <pre className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono text-gray-500 max-h-64 overflow-y-auto">
-                  {run.rawOutput}
-                </pre>
+            {/* Raw output - always visible */}
+            {isExpanded && run.rawOutput && (
+              <div className="border-t">
+                <div className="flex items-center justify-between px-4 py-2 bg-slate-800">
+                  <span className="text-xs font-medium text-slate-400">评估完整输出</span>
+                </div>
+                <div className="bg-slate-900 p-4 max-h-64 overflow-y-auto">
+                  <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono text-slate-300">
+                    {run.rawOutput}
+                  </pre>
+                </div>
               </div>
             )}
 
-            {isExpanded && devMode && run.error && (
+            {isExpanded && run.error && (
               <div className="border-t bg-red-50 p-4">
                 <h4 className="text-xs font-medium text-red-500 mb-2">错误详情</h4>
-                <pre className="text-[11px] whitespace-pre-wrap text-red-500 max-h-40 overflow-y-auto">
+                <pre className="text-xs whitespace-pre-wrap text-red-500 max-h-40 overflow-y-auto">
                   {run.error}
                 </pre>
               </div>

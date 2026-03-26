@@ -99,16 +99,16 @@ export function ReviewDecisionForm({ interviewId, currentDecision, onSubmitSucce
 
         {/* Optional Score */}
         <div className="space-y-2">
-          <Label htmlFor="score">人工评分（可选，0-10）</Label>
+          <Label htmlFor="score">人工评分（可选，0-100）</Label>
           <Input
             id="score"
             type="number"
             min="0"
-            max="10"
+            max="100"
             step="0.1"
             value={score}
             onChange={(e) => setScore(e.target.value)}
-            placeholder="例如: 7.5"
+            placeholder="例如: 75"
           />
         </div>
 

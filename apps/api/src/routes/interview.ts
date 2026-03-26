@@ -6,7 +6,7 @@ import {
   endInterviewByInterviewer,
   getInterviewEvents,
   withWorkspaceUrl,
-  getWorkspaceUrlForPort
+  getWorkspaceUrlForInterview
 } from '../services/interview-service';
 
 export async function interviewPublicRoutes(fastify: FastifyInstance) {
@@ -34,7 +34,7 @@ export async function interviewPublicRoutes(fastify: FastifyInstance) {
     if (!interview) {
       return reply.code(404).send({ error: 'Interview not found' });
     }
-    const workspaceUrl = await getWorkspaceUrlForPort(interview.port);
+    const workspaceUrl = await getWorkspaceUrlForInterview(interview);
     return {
       status: interview.status,
       startTime: interview.startTime,

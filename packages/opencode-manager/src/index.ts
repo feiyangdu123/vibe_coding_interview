@@ -11,6 +11,8 @@ export interface InstanceInfo {
   interviewId: string;
   host: string;
   workspaceUrl: string;
+  sessionId?: string;
+  sessionUrl?: string;
   port: number;
   processId: number;
   process: ChildProcess;
@@ -39,8 +41,35 @@ export interface ApiKeyConfig {
   modelId: string;
 }
 
+export interface LaunchSessionInfo {
+  host: string;
+  port: number;
+  sessionId: string;
+  sessionUrl: string;
+}
+
+interface OpenCodeSessionInfo {
+  id: string;
+  directory: string;
+  parentID?: string;
+}
+
+export interface LaunchSessionOptions {
+  timeoutMs?: number;
+  intervalMs?: number;
+}
+
+export function encodeWorkspaceSlug(workDir: string): string {
+  return Buffer.from(workDir, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+export function buildLaunchSessionUrl(workspaceUrl: string, workDir: string, sessionId: string): string {
+  return new URL(`/${encodeWorkspaceSlug(workDir)}/session/${sessionId}`, workspaceUrl).toString();
+}
+
 function getWorkspaceProtocol(host: string): 'http' | 'https' {
-  if (host === 'localhost' || host === '127.0.0.1') {
+  // Local/private network addresses always use http
+  if (host === 'localhost' || host === '127.0.0.1' || /^(10|172\.(1[6-9]|2\d|3[01])|192\.168)\./.test(host)) {
     return 'http';
   }
 
@@ -56,12 +85,12 @@ function getWorkspaceProtocol(host: string): 'http' | 'https' {
   return 'https';
 }
 
-function buildWorkspaceUrl(host: string): string {
+function buildWorkspaceUrl(host: string, port: number): string {
   if (/^https?:\/\//.test(host)) {
-    return host;
+    return `${host}:${port}`;
   }
 
-  return `${getWorkspaceProtocol(host)}://${host}`;
+  return `${getWorkspaceProtocol(host)}://${host}:${port}`;
 }
 
 function getCapacityExceededError(slotCount: number): string {
@@ -100,7 +129,7 @@ function parseSlots(rawSlots: string | undefined): OpenCodeSlot[] {
     return {
       host,
       port,
-      workspaceUrl: buildWorkspaceUrl(host)
+      workspaceUrl: buildWorkspaceUrl(host, port)
     };
   });
 }
@@ -172,6 +201,7 @@ export type CrashCallback = (interviewId: string, port: number, restartCount: nu
 export class OpenCodeManager {
   private slotManager: SlotManager;
   private instances: Map<string, InstanceInfo>;
+  private launchSessionPromises: Map<string, Promise<LaunchSessionInfo>>;
   private opencodePath: string;
   private bindHost: string;
   private healthCheckHost: string;
@@ -183,6 +213,7 @@ export class OpenCodeManager {
     this.healthCheckHost = this.bindHost === '0.0.0.0' ? '127.0.0.1' : this.bindHost;
     this.slotManager = new SlotManager(parseSlots(process.env.OPENCODE_SLOTS), this.bindHost);
     this.instances = new Map();
+    this.launchSessionPromises = new Map();
     this.opencodePath = opencodePath;
   }
 
@@ -203,15 +234,28 @@ export class OpenCodeManager {
     });
   }
 
-  async startInstance(interviewId: string, workDir: string, apiKeyConfig?: ApiKeyConfig): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string }> {
+  async startInstance(
+    interviewId: string,
+    workDir: string,
+    apiKeyConfig?: ApiKeyConfig
+  ): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string; sessionId: string }> {
     if (this.instances.has(interviewId)) {
       const existing = this.instances.get(interviewId)!;
+      const launchSession = existing.sessionId && existing.sessionUrl
+        ? {
+            host: existing.host,
+            port: existing.port,
+            sessionId: existing.sessionId,
+            sessionUrl: existing.sessionUrl
+          }
+        : await this.ensureLaunchSession(interviewId, existing.port, existing.workDir);
       return {
         host: existing.host,
-        workspaceUrl: existing.workspaceUrl,
+        workspaceUrl: launchSession.sessionUrl,
         port: existing.port,
         processId: existing.processId,
-        dataDir: existing.dataDir
+        dataDir: existing.dataDir,
+        sessionId: launchSession.sessionId
       };
     }
 
@@ -241,6 +285,7 @@ export class OpenCodeManager {
       fs.mkdirSync(opencodeConfigDir, { recursive: true });
       const opencodeJson = {
         '$schema': 'https://opencode.ai/config.json',
+        snapshot: false,
         provider: {
           custom: {
             npm: '@ai-sdk/openai-compatible',
@@ -255,6 +300,16 @@ export class OpenCodeManager {
             }
           }
         }
+      };
+      fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
+    } else {
+      // Even without apiKeyConfig, write snapshot: false to prevent diffs errors
+      const configDir = path.join(dataDir, 'config');
+      const opencodeConfigDir = path.join(configDir, 'opencode');
+      fs.mkdirSync(opencodeConfigDir, { recursive: true });
+      const opencodeJson = {
+        '$schema': 'https://opencode.ai/config.json',
+        snapshot: false,
       };
       fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
     }
@@ -315,15 +370,15 @@ export class OpenCodeManager {
       throw new Error(`OpenCode instance failed to start on port ${slot.port}`);
     }
 
-    // Wait for OpenCode to finish internal initialization (project/workspace tables in SQLite)
-    await this.waitForProjectReady(dataDir);
+    const launchSession = await this.ensureLaunchSession(interviewId, slot.port, workDir);
 
     return {
       host: slot.host,
-      workspaceUrl: slot.workspaceUrl,
+      workspaceUrl: launchSession.sessionUrl,
       port: slot.port,
       processId: child.pid,
-      dataDir
+      dataDir,
+      sessionId: launchSession.sessionId
     };
   }
 
@@ -334,7 +389,7 @@ export class OpenCodeManager {
     dataDir: string,
     apiKeyConfig?: ApiKeyConfig,
     restartCount: number = 0
-  ): Promise<{ port: number; processId: number; dataDir: string }> {
+  ): Promise<{ host: string; workspaceUrl: string; port: number; processId: number; dataDir: string; sessionId: string }> {
     const slot = this.slotManager.getSlotByPort(port);
     if (!slot) {
       throw new Error(`No slot found for port ${port}`);
@@ -357,6 +412,7 @@ export class OpenCodeManager {
       fs.mkdirSync(opencodeConfigDir, { recursive: true });
       const opencodeJson = {
         '$schema': 'https://opencode.ai/config.json',
+        snapshot: false,
         provider: {
           custom: {
             npm: '@ai-sdk/openai-compatible',
@@ -371,6 +427,16 @@ export class OpenCodeManager {
             }
           }
         }
+      };
+      fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
+    } else {
+      // Even without apiKeyConfig, write snapshot: false to prevent diffs errors
+      const configDir = path.join(dataDir, 'config');
+      const opencodeConfigDir = path.join(configDir, 'opencode');
+      fs.mkdirSync(opencodeConfigDir, { recursive: true });
+      const opencodeJson = {
+        '$schema': 'https://opencode.ai/config.json',
+        snapshot: false,
       };
       fs.writeFileSync(path.join(opencodeConfigDir, 'opencode.json'), JSON.stringify(opencodeJson, null, 2));
     }
@@ -429,10 +495,16 @@ export class OpenCodeManager {
       throw new Error(`OpenCode instance failed to restart on port ${port}`);
     }
 
-    // Wait for OpenCode to finish internal initialization (project/workspace tables in SQLite)
-    await this.waitForProjectReady(dataDir);
+    const launchSession = await this.ensureLaunchSession(interviewId, port, workDir);
 
-    return { port, processId: child.pid, dataDir };
+    return {
+      host: slot.host,
+      workspaceUrl: launchSession.sessionUrl,
+      port,
+      processId: child.pid,
+      dataDir,
+      sessionId: launchSession.sessionId
+    };
   }
 
   private _setupChildProcess(child: ChildProcess, instanceInfo: InstanceInfo): void {
@@ -513,12 +585,181 @@ export class OpenCodeManager {
   }
 
   getWorkspaceUrl(port: number): string | undefined {
-    return this.slotManager.getSlotByPort(port)?.workspaceUrl;
+    const instance = Array.from(this.instances.values()).find((item) => item.port === port);
+    return instance?.sessionUrl ?? instance?.workspaceUrl ?? this.slotManager.getSlotByPort(port)?.workspaceUrl;
+  }
+
+  async ensureLaunchSession(
+    interviewId: string,
+    port: number,
+    workDir: string,
+    options: LaunchSessionOptions = {}
+  ): Promise<LaunchSessionInfo> {
+    const existing = this.instances.get(interviewId);
+    if (existing?.port === port && existing.sessionId && existing.sessionUrl) {
+      return {
+        host: existing.host,
+        port,
+        sessionId: existing.sessionId,
+        sessionUrl: existing.sessionUrl
+      };
+    }
+
+    const key = `${interviewId}:${port}`;
+    const inflight = this.launchSessionPromises.get(key);
+    if (inflight) {
+      return inflight;
+    }
+
+    const promise = this.pollForLaunchSession(interviewId, port, workDir, options)
+      .finally(() => {
+        this.launchSessionPromises.delete(key);
+      });
+    this.launchSessionPromises.set(key, promise);
+    return promise;
+  }
+
+  private async pollForLaunchSession(
+    interviewId: string,
+    port: number,
+    workDir: string,
+    options: LaunchSessionOptions
+  ): Promise<LaunchSessionInfo> {
+    const slot = this.slotManager.getSlotByPort(port);
+    if (!slot) {
+      throw new Error(`No slot found for port ${port}`);
+    }
+
+    const timeoutMs = options.timeoutMs ?? 30000;
+    const intervalMs = options.intervalMs ?? 500;
+    const startTime = Date.now();
+    let lastError: unknown;
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const existingSession = (await this.listRootSessions(port, workDir))[0];
+        const launchSession = existingSession ?? await this.createRootSession(port);
+        const launchInfo = {
+          host: slot.host,
+          port,
+          sessionId: launchSession.id,
+          sessionUrl: buildLaunchSessionUrl(slot.workspaceUrl, workDir, launchSession.id)
+        };
+        this.cacheLaunchSession(interviewId, port, launchInfo);
+        return launchInfo;
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    const msg = lastError instanceof Error ? lastError.message : 'Unknown error';
+    throw new Error(`OpenCode launch session bootstrap timed out after ${timeoutMs}ms: ${msg}`);
+  }
+
+  private cacheLaunchSession(interviewId: string, port: number, launchSession: LaunchSessionInfo): void {
+    const instance = this.instances.get(interviewId);
+    if (!instance || instance.port !== port) {
+      return;
+    }
+
+    instance.sessionId = launchSession.sessionId;
+    instance.sessionUrl = launchSession.sessionUrl;
+    instance.workspaceUrl = launchSession.sessionUrl;
+  }
+
+  private listRootSessions(port: number, workDir: string): Promise<OpenCodeSessionInfo[]> {
+    const query = new URLSearchParams({
+      directory: workDir,
+      roots: 'true',
+      limit: '1'
+    });
+    return this.requestJson<OpenCodeSessionInfo[]>(port, `/session?${query.toString()}`);
+  }
+
+  private createRootSession(port: number): Promise<OpenCodeSessionInfo> {
+    return this.requestJson<OpenCodeSessionInfo>(port, '/session', {
+      method: 'POST',
+      body: {}
+    });
+  }
+
+  private getServerAuthHeaders(contentLength?: number): http.OutgoingHttpHeaders {
+    const headers: http.OutgoingHttpHeaders = {};
+    const password = process.env.OPENCODE_SERVER_PASSWORD;
+
+    if (password) {
+      const username = process.env.OPENCODE_SERVER_USERNAME || 'opencode';
+      headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    }
+
+    if (typeof contentLength === 'number') {
+      headers['Content-Length'] = contentLength;
+      headers['Content-Type'] = 'application/json';
+    }
+
+    return headers;
+  }
+
+  private async requestJson<T>(
+    port: number,
+    requestPath: string,
+    options: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = {}
+  ): Promise<T> {
+    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: this.healthCheckHost,
+          port,
+          method: options.method ?? 'GET',
+          path: requestPath,
+          timeout: options.timeoutMs ?? 2000,
+          headers: this.getServerAuthHeaders(body ? Buffer.byteLength(body) : undefined)
+        },
+        (res) => {
+          let rawBody = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => {
+            rawBody += chunk;
+          });
+          res.on('end', () => {
+            if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+              reject(new Error(`OpenCode API ${options.method ?? 'GET'} ${requestPath} returned ${res.statusCode ?? 'unknown'}: ${rawBody}`));
+              return;
+            }
+
+            try {
+              resolve(JSON.parse(rawBody) as T);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        }
+      );
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy(new Error(`OpenCode API ${options.method ?? 'GET'} ${requestPath} timed out`));
+      });
+
+      if (body) {
+        req.write(body);
+      }
+      req.end();
+    });
   }
 
   async checkHealth(port: number): Promise<boolean> {
     return new Promise((resolve) => {
-      const req = http.get(`http://${this.healthCheckHost}:${port}/`, { timeout: 2000 }, (res) => {
+      const req = http.get({
+        host: this.healthCheckHost,
+        port,
+        path: '/',
+        timeout: 2000,
+        headers: this.getServerAuthHeaders()
+      }, (res) => {
         resolve(res.statusCode === 200);
       });
 
@@ -546,36 +787,5 @@ export class OpenCodeManager {
     }
 
     return false;
-  }
-
-  /**
-   * Wait for OpenCode to finish internal initialization by checking that the
-   * SQLite database has a valid project entry (worktree != '/').
-   * Falls back to a fixed delay if the database file doesn't exist yet.
-   */
-  private async waitForProjectReady(dataDir: string, timeout: number = 10000): Promise<void> {
-    const dbPath = path.join(dataDir, 'opencode', 'opencode.db');
-    const startTime = Date.now();
-    const interval = 500;
-
-    while (Date.now() - startTime < timeout) {
-      try {
-        if (fs.existsSync(dbPath)) {
-          // Check file size as a rough indicator that DB has been written to
-          const stats = fs.statSync(dbPath);
-          if (stats.size > 4096) {
-            console.log(`[OpenCode] Project DB ready (${stats.size} bytes) in ${Date.now() - startTime}ms`);
-            // Give a small additional buffer for SQLite writes to flush
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return;
-          }
-        }
-      } catch {
-        // File might not exist yet, keep polling
-      }
-      await new Promise(resolve => setTimeout(resolve, interval));
-    }
-
-    console.warn(`[OpenCode] Project DB readiness check timed out after ${timeout}ms, proceeding anyway`);
   }
 }

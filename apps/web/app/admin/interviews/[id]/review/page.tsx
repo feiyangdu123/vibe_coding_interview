@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +15,7 @@ import { ChatHistoryPanel } from '@/components/review/chat-history-panel'
 import { EventTimelinePanel } from '@/components/review/event-timeline-panel'
 import { ReviewDecisionForm } from '@/components/review/review-decision-form'
 import { EvaluationStreamPanel } from '@/components/review/evaluation-stream-panel'
-import { ChevronDown, Wrench } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 
 interface Interview {
   id: string
@@ -36,6 +36,7 @@ interface AiEvaluationRun {
   status: string
   score?: number
   details?: any
+  rawOutput?: string
   startedAt: string
   completedAt?: string
 }
@@ -50,9 +51,7 @@ function parseDetails(raw: string): any {
 
 export default function ReviewPage() {
   const params = useParams()
-  const searchParams = useSearchParams()
   const interviewId = params.id as string
-  const showDevToggle = searchParams.get('dev') === '1'
 
   const [interview, setInterview] = useState<Interview | null>(null)
   const [evaluationHistory, setEvaluationHistory] = useState<AiEvaluationRun[]>([])
@@ -61,8 +60,11 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true)
   const [isEvaluating, setIsEvaluating] = useState(false)
   const [evaluatingError, setEvaluatingError] = useState<string | null>(null)
-  const [devMode, setDevMode] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+
+  // Current evaluation details (can change when switching history runs)
+  const [currentDetails, setCurrentDetails] = useState<string | null>(null)
+  const [currentScore, setCurrentScore] = useState<number | undefined>(undefined)
 
   useEffect(() => {
     loadData()
@@ -80,6 +82,8 @@ export default function ReviewPage() {
       setEvaluationHistory(historyData)
       setSelectedRunId(interviewData.currentAiRunId || null)
       setRawOutput(evaluationData?.rawOutput || null)
+      setCurrentDetails(interviewData.aiEvaluationDetails || null)
+      setCurrentScore(interviewData.aiEvaluationScore ?? undefined)
       setIsEvaluating(interviewData.aiEvaluationStatus === 'running')
       setLoading(false)
     } catch (err) {
@@ -105,6 +109,18 @@ export default function ReviewPage() {
     setIsEvaluating(false)
     loadData()
   }, [])
+
+  const handleSelectRun = useCallback((runId: string) => {
+    setSelectedRunId(runId)
+    const run = evaluationHistory.find(r => r.id === runId)
+    if (run) {
+      setRawOutput(run.rawOutput || null)
+      if (run.details) {
+        setCurrentDetails(typeof run.details === 'string' ? run.details : JSON.stringify(run.details))
+        setCurrentScore(run.score ?? undefined)
+      }
+    }
+  }, [evaluationHistory])
 
   if (loading) {
     return (
@@ -167,8 +183,8 @@ export default function ReviewPage() {
                   isRunning={true}
                   onComplete={handleEvaluationComplete}
                 />
-              ) : interview.aiEvaluationStatus === 'completed' && interview.aiEvaluationDetails ? (
-                <AiEvaluationPanel details={parseDetails(interview.aiEvaluationDetails)} score={interview.aiEvaluationScore} rawOutput={rawOutput} />
+              ) : interview.aiEvaluationStatus === 'completed' && currentDetails ? (
+                <AiEvaluationPanel details={parseDetails(currentDetails)} score={currentScore} rawOutput={rawOutput} />
               ) : interview.aiEvaluationStatus === 'failed' ? (
                 <div className="text-red-600 text-sm">评估失败，请点击"重新评估"重试</div>
               ) : (
@@ -193,8 +209,7 @@ export default function ReviewPage() {
                       <AiRunHistoryPanel
                         history={evaluationHistory}
                         selectedRunId={selectedRunId}
-                        onSelectRun={setSelectedRunId}
-                        devMode={devMode}
+                        onSelectRun={handleSelectRun}
                       />
                     </div>
                   )}
@@ -206,29 +221,13 @@ export default function ReviewPage() {
           {/* Tabs: Event Overview + Chat History */}
           <Card>
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-2">
-                <div />
-                {showDevToggle && (
-                  <button
-                    onClick={() => setDevMode(!devMode)}
-                    className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                      devMode
-                        ? 'bg-gray-800 text-white border-gray-800'
-                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <Wrench className="h-3 w-3" />
-                    开发者模式
-                  </button>
-                )}
-              </div>
               <Tabs defaultValue="events">
                 <TabsList>
                   <TabsTrigger value="events">事件概览</TabsTrigger>
                   <TabsTrigger value="chat">聊天记录</TabsTrigger>
                 </TabsList>
                 <TabsContent value="events">
-                  <EventTimelinePanel interviewId={interviewId} devMode={devMode} />
+                  <EventTimelinePanel interviewId={interviewId} />
                 </TabsContent>
                 <TabsContent value="chat">
                   <ChatHistoryPanel interviewId={interviewId} />

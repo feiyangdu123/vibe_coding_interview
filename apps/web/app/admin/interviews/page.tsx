@@ -418,8 +418,8 @@ export default function InterviewsPage() {
                         {interview.aiEvaluationStatus === 'completed' && interview.aiEvaluationScore !== undefined ? (
                           <Badge
                             variant={
-                              interview.aiEvaluationScore >= 7 ? 'success' :
-                              interview.aiEvaluationScore >= 5 ? 'warning' :
+                              interview.aiEvaluationScore >= 70 ? 'success' :
+                              interview.aiEvaluationScore >= 50 ? 'warning' :
                               'error'
                             }
                             className="font-semibold"

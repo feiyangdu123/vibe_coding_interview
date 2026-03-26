@@ -207,7 +207,7 @@ export default function InterviewDetailPage() {
   const evaluationStatusLabel =
     interview.aiEvaluationStatus === 'completed'
       ? interview.aiEvaluationScore !== null && interview.aiEvaluationScore !== undefined
-        ? `已完成 ${interview.aiEvaluationScore.toFixed(1)}/10`
+        ? `已完成 ${interview.aiEvaluationScore.toFixed(1)}/100`
         : '已完成'
       : interview.aiEvaluationStatus === 'running'
         ? '评估中'

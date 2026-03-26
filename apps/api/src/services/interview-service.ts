@@ -13,7 +13,6 @@ import type { CreateInterviewDto, BatchCreateInterviewDto } from '@vibe/shared-t
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync } from 'child_process';
 import { evaluateInterview } from './ai-evaluation-service';
 import {
   getInterviewScheduleWindow,
@@ -39,6 +38,18 @@ type PreparedInterview = {
     email: string;
     phone?: string;
   };
+};
+
+type WorkspaceUrlInterview = {
+  id: string;
+  port: number | null | undefined;
+  workDir: string | null | undefined;
+};
+
+type ExistingLaunchState = {
+  port: number;
+  processId: number;
+  dataDir: string;
 };
 
 function getWebPublicUrlBase(): string {
@@ -100,13 +111,65 @@ export async function getWorkspaceUrlForPort(port: number | null | undefined): P
   return manager.getWorkspaceUrl(port);
 }
 
-export async function withWorkspaceUrl<T extends { port: number | null | undefined }>(
+export async function getWorkspaceUrlForInterview(interview: WorkspaceUrlInterview): Promise<string | undefined> {
+  if (typeof interview.port !== 'number' || !interview.workDir) {
+    return undefined;
+  }
+
+  try {
+    const manager = await getOpenCodeManager();
+    const launchSession = await manager.ensureLaunchSession(interview.id, interview.port, interview.workDir);
+    return launchSession.sessionUrl;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.warn(`[Interview] Failed to resolve workspace URL for interview ${interview.id}: ${msg}`);
+    return undefined;
+  }
+}
+
+export async function withWorkspaceUrl<T extends WorkspaceUrlInterview>(
   interview: T
 ): Promise<T & { workspaceUrl?: string }> {
-  const workspaceUrl = await getWorkspaceUrlForPort(interview.port);
+  const workspaceUrl = await getWorkspaceUrlForInterview(interview);
   return {
     ...interview,
     workspaceUrl
+  };
+}
+
+async function resolveExistingLaunchState(
+  manager: OpenCodeManager,
+  interview: WorkspaceUrlInterview & {
+    processId: number | null | undefined;
+    dataDir: string | null | undefined;
+  }
+): Promise<ExistingLaunchState | undefined> {
+  if (typeof interview.port !== 'number') {
+    return undefined;
+  }
+
+  const instance = manager.getInstance(interview.id);
+  if (instance) {
+    return {
+      port: instance.port,
+      processId: instance.processId,
+      dataDir: instance.dataDir
+    };
+  }
+
+  if (!interview.workDir || typeof interview.processId !== 'number' || !interview.dataDir) {
+    return undefined;
+  }
+
+  const isHealthy = await manager.checkHealth(interview.port);
+  if (!isHealthy) {
+    return undefined;
+  }
+
+  return {
+    port: interview.port,
+    processId: interview.processId,
+    dataDir: interview.dataDir
   };
 }
 
@@ -355,18 +418,6 @@ ${problem.description}
 ${problem.requirements}
 `;
   fs.writeFileSync(path.join(interviewWorkDir, '题目与要求.md'), problemContent, 'utf-8');
-
-  // Initialize git repo so OpenCode recognizes this as a project
-  try {
-    console.log(`[Workspace] Initializing git in: ${interviewWorkDir}`);
-    execSync('git init && git add -A && git commit -m "Initial workspace"', {
-      cwd: interviewWorkDir,
-      stdio: 'ignore',
-    });
-    console.log(`[Workspace] Git initialized successfully in: ${interviewWorkDir}`);
-  } catch (error) {
-    console.warn(`[Workspace] Failed to initialize git repo in ${interviewWorkDir}:`, error instanceof Error ? error.message : error);
-  }
 
   return interviewWorkDir;
 }
@@ -745,25 +796,9 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
   const manager = await getOpenCodeManager();
 
   try {
-    let port: number;
-    let host: string;
-    let workspaceUrl: string;
-    let processId: number;
-    let dataDir: string;
-    let skipLaunch = false;
+    let launchState = await resolveExistingLaunchState(manager, interview);
 
-    if (interview.openCodeStatus === 'ready' && interview.port) {
-      // Check if the prewarmed instance is still alive
-      const instance = manager.getInstance(interview.id);
-      if (instance) {
-        port = instance.port;
-        host = instance.host;
-        workspaceUrl = instance.workspaceUrl;
-        processId = instance.processId;
-        dataDir = instance.dataDir;
-        skipLaunch = true;
-      }
-    } else if (interview.openCodeStatus === 'starting') {
+    if (!launchState && interview.openCodeStatus === 'starting') {
       // Poll DB for up to 30s waiting for it to become ready
       const pollStart = Date.now();
       while (Date.now() - pollStart < 30000) {
@@ -773,14 +808,14 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
           select: { openCodeStatus: true, port: true, processId: true, dataDir: true }
         });
         if (fresh?.openCodeStatus === 'ready' && fresh.port) {
-          const instance = manager.getInstance(interview.id);
-          if (instance) {
-            port = instance.port;
-            host = instance.host;
-            workspaceUrl = instance.workspaceUrl;
-            processId = instance.processId;
-            dataDir = instance.dataDir;
-            skipLaunch = true;
+          launchState = await resolveExistingLaunchState(manager, {
+            id: interview.id,
+            workDir: interview.workDir,
+            port: fresh.port,
+            processId: fresh.processId,
+            dataDir: fresh.dataDir
+          });
+          if (launchState) {
             break;
           }
         }
@@ -790,7 +825,14 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
       }
     }
 
-    if (!skipLaunch) {
+    if (!launchState) {
+      if (typeof interview.port === 'number') {
+        const isHealthy = await manager.checkHealth(interview.port);
+        if (!isHealthy) {
+          manager.releasePort(interview.port);
+        }
+      }
+
       // Fallback: synchronous launch (same as original logic)
       const apiKeyConfig = await prisma.organizationApiKeyConfig.findFirst({
         where: { organizationId: interview.organizationId, isSelected: true },
@@ -804,13 +846,23 @@ export async function startInterview(token: string): Promise<InterviewWithRelati
           ? { baseUrl: apiKeyConfig.baseUrl, apiKey: apiKeyConfig.apiKey, modelId: apiKeyConfig.modelId }
           : undefined
       );
-      port = result.port;
-      host = result.host;
-      workspaceUrl = result.workspaceUrl;
-      processId = result.processId;
-      dataDir = result.dataDir;
+      launchState = {
+        port: result.port,
+        processId: result.processId,
+        dataDir: result.dataDir
+      };
     }
 
+    if (!launchState) {
+      throw new Error('Failed to prepare interview workspace');
+    }
+
+    const launchSession = await manager.ensureLaunchSession(interview.id, launchState.port, interview.workDir);
+    const port = launchState.port;
+    const host = launchSession.host;
+    const workspaceUrl = launchSession.sessionUrl;
+    const processId = launchState.processId;
+    const dataDir = launchState.dataDir;
 
     const startTime = new Date();
     const endTime = new Date(startTime.getTime() + interview.duration * 60000);

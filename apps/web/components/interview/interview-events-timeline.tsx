@@ -1,20 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { LucideIcon } from 'lucide-react'
-import {
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  Clock3,
-  Cpu,
-  Hand,
-  HeartPulse,
-  PlayCircle,
-  Sparkles
-} from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Cpu } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import {
+  eventTypeConfig,
+  metadataToDescription,
+  filterMetadata,
+  getMetadataKeyLabel,
+  formatMetadataValue,
+  getColorClasses,
+} from '@/lib/event-display'
 import type { InterviewEventType } from '@vibe/shared-types'
 
 interface InterviewEvent {
@@ -29,21 +25,11 @@ interface InterviewEventsTimelineProps {
   isInProgress: boolean
 }
 
-const eventTypeConfig: Record<
-  InterviewEventType,
-  { label: string; icon: LucideIcon; badge: 'success' | 'error' | 'warning' | 'info' | 'secondary' }
-> = {
-  STARTED: { label: '面试开始', icon: PlayCircle, badge: 'success' },
-  WORKSPACE_OPENED: { label: '打开工作区', icon: Cpu, badge: 'info' },
-  HEARTBEAT: { label: '心跳检测', icon: HeartPulse, badge: 'secondary' },
-  SUBMITTED: { label: '候选人提交', icon: CheckCircle2, badge: 'success' },
-  TIMEOUT: { label: '时间到', icon: Clock3, badge: 'warning' },
-  INTERVIEWER_ENDED: { label: '面试官结束', icon: Hand, badge: 'warning' },
-  SYSTEM_ERROR: { label: '系统错误', icon: AlertTriangle, badge: 'error' },
-  CANCELLED: { label: '管理员取消', icon: Hand, badge: 'warning' },
-  NO_SHOW: { label: '候选人未到场', icon: AlertTriangle, badge: 'warning' },
-  AI_EVALUATION_STARTED: { label: 'AI 评估开始', icon: Bot, badge: 'info' },
-  AI_EVALUATION_FINISHED: { label: 'AI 评估完成', icon: Sparkles, badge: 'success' }
+const defaultConfig = {
+  icon: Cpu,
+  color: 'gray' as const,
+  title: '未知事件',
+  tier: 1 as const,
 }
 
 export function InterviewEventsTimeline({ interviewId, isInProgress }: InterviewEventsTimelineProps) {
@@ -83,37 +69,54 @@ export function InterviewEventsTimeline({ interviewId, isInProgress }: Interview
     return <div className="text-gray-600 text-center py-8">暂无事件记录</div>
   }
 
+  // Deduplicate consecutive events of the same type within 5 seconds
+  const deduped = events.filter((event, i) => {
+    if (i === 0) return true
+    const prev = events[i - 1]
+    if (prev.eventType !== event.eventType) return true
+    const gap = Math.abs(new Date(event.createdAt).getTime() - new Date(prev.createdAt).getTime())
+    return gap > 5000
+  })
+
   return (
     <div className="space-y-4">
-      {events.map((event, index) => {
-        const config = eventTypeConfig[event.eventType] || {
-          label: event.eventType,
-          icon: Cpu,
-          badge: 'secondary' as const
-        }
+      {deduped.map((event, index) => {
+        const config = eventTypeConfig[event.eventType] || defaultConfig
         const Icon = config.icon
+        const colors = getColorClasses(config.color)
+        const description = metadataToDescription(event.eventType, event.metadata)
+        const filtered = filterMetadata(event.metadata)
 
         return (
           <div key={event.id} className="flex gap-4">
             <div className="flex flex-col items-center">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-white text-slate-600">
+              <div className={`flex h-9 w-9 items-center justify-center rounded-full border ${colors.border} ${colors.bg} ${colors.text}`}>
                 <Icon className="h-4 w-4" />
               </div>
-              {index < events.length - 1 && (
+              {index < deduped.length - 1 && (
                 <div className="mt-2 h-full w-px bg-border"></div>
               )}
             </div>
             <div className="flex-1 pb-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="font-semibold text-slate-900">{config.label}</div>
-                <Badge variant={config.badge}>{event.eventType}</Badge>
-              </div>
+              <div className="font-semibold text-slate-900">{config.title}</div>
               <div className="mt-1 text-sm text-gray-500">
                 {new Date(event.createdAt).toLocaleString('zh-CN')}
               </div>
-              {event.metadata && Object.keys(event.metadata).length > 0 && (
+              {description && (
+                <div className={`mt-2 text-sm ${config.highlighted ? 'text-red-600' : 'text-slate-600'}`}>
+                  {description}
+                </div>
+              )}
+              {filtered && !description && (
                 <div className="mt-3 rounded-lg border border-border bg-slate-50 p-3 text-sm text-slate-600">
-                  <pre className="whitespace-pre-wrap">{JSON.stringify(event.metadata, null, 2)}</pre>
+                  <dl className="space-y-1">
+                    {Object.entries(filtered).map(([key, value]) => (
+                      <div key={key} className="flex gap-2">
+                        <dt className="text-gray-500 shrink-0">{getMetadataKeyLabel(key)}：</dt>
+                        <dd className="text-slate-700">{formatMetadataValue(key, value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 </div>
               )}
             </div>
