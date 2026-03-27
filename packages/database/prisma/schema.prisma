@@ -261,7 +261,7 @@ model Interview {
 
   // AI 评估字段
   aiEvaluationStatus  String?   // 'pending' | 'running' | 'completed' | 'failed' | 'timeout'
-  aiEvaluationScore   Float?    // 总分 (0-10)
+  aiEvaluationScore   Float?    // 总分 (0-100)
   aiEvaluationDetails String?   @db.Text // 评估结果文本（包含分数和原因）
   aiEvaluationRaw     String?   @db.Text // AI 原始响应
   aiEvaluationError   String?   @db.Text // 错误信息

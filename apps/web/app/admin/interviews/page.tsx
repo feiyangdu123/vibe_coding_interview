@@ -138,10 +138,19 @@ export default function InterviewsPage() {
     loadInterviews()
   }, [page, pageSize, debouncedSearch, statusFilter, aiStatusFilter, reviewStatusFilter, decisionFilter])
 
-  const copyLink = (token: string) => {
-    const link = `${window.location.origin}/interview/${token}`
-    copyToClipboard(link)
-    toast.success('链接已复制')
+  const copyLink = (interview: Interview) => {
+    const link = `${window.location.origin}/interview/${interview.token}`
+    const scheduledAt = interview.scheduledStartAt
+      ? new Date(interview.scheduledStartAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : ''
+    const positionName = interview.problemSnapshot?.positionName
+    const greeting = positionName
+      ? `你好 ${interview.candidate.name}，你的「${positionName}」编程面试已安排：`
+      : `你好 ${interview.candidate.name}，你的编程面试已安排：`
+    const timeLine = scheduledAt ? `\n- 面试时间：${scheduledAt}` : ''
+    const message = `${greeting}${timeLine}\n- 面试链接：${link}\n请在面试时间打开链接，准时参加。祝顺利！`
+    copyToClipboard(message)
+    toast.success('面试文案已复制')
   }
 
   const copyWorkDir = (workDir: string) => {
@@ -490,7 +499,7 @@ export default function InterviewsPage() {
                                   {interview.manualReviewStatus === 'completed' ? '查看复核' : '进入复核'}
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => copyLink(interview.token)}>
+                              <DropdownMenuItem onClick={() => copyLink(interview)}>
                                 <ExternalLink className="mr-2 h-3.5 w-3.5" />
                                 复制链接
                               </DropdownMenuItem>

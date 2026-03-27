@@ -17,6 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/admin/page-header'
 import { toast } from 'sonner'
+import Link from 'next/link'
+import { Trophy } from 'lucide-react'
 import { useDebounce } from '@/hooks/use-debounce'
 import { problemSchema, type ProblemFormData } from '@vibe/shared-types'
 import type { PaginationMeta, ProblemVisibility, ProblemType } from '@vibe/shared-types'
@@ -35,6 +37,7 @@ interface Problem {
   difficulty?: string
   tags?: string[]
   positions?: string[]
+  scoringRubric?: string
 }
 
 export default function ProblemsPage() {
@@ -319,13 +322,14 @@ export default function ProblemsPage() {
                 <TableHead>难度</TableHead>
                 <TableHead>时长</TableHead>
                 <TableHead>可见性</TableHead>
+                {viewMode === 'organization' && <TableHead>排行榜</TableHead>}
                 <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {problems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={viewMode === 'organization' ? 7 : 6} className="text-center text-muted-foreground">
                     {search ? '未找到匹配的题目' : (viewMode === 'organization' ? '暂无题目，点击"新建题目"创建第一个题目' : '暂无平台模板')}
                   </TableCell>
                 </TableRow>
@@ -370,6 +374,17 @@ export default function ProblemsPage() {
                               : problem.visibility || '私有'}
                       </Badge>
                     </TableCell>
+                    {viewMode === 'organization' && (
+                      <TableCell>
+                        <Link
+                          href={`/admin/problems/${problem.id}/leaderboard`}
+                          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          <Trophy className="h-3.5 w-3.5" />
+                          查看排行
+                        </Link>
+                      </TableCell>
+                    )}
                     <TableCell className="space-x-2">
                       {viewMode === 'organization' ? (
                         <>

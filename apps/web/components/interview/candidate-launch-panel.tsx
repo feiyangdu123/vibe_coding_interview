@@ -21,6 +21,7 @@ export function CandidateLaunchPanel({
   duration,
   candidateName,
   positionName,
+  scheduledStartAt,
   workDir,
   onStart
 }: CandidateLaunchPanelProps) {
@@ -91,6 +92,11 @@ export function CandidateLaunchPanel({
               </div>
               <Badge variant="secondary">{duration} 分钟</Badge>
             </div>
+            {scheduledStartAt && (
+              <div className="mt-3 text-sm text-slate-500">
+                预约时间：<span className="font-medium text-slate-900">{new Date(scheduledStartAt).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 

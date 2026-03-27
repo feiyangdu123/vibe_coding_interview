@@ -40,7 +40,7 @@ interface Interview {
     title: string
     description: string
     requirements: string
-    scoringCriteria: any
+    scoringCriteria?: any
   }
 }
 

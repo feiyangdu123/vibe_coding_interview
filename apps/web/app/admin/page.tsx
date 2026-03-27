@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   ServerCog,
   Settings2,
+  Trophy,
   Users,
   Wallet
 } from 'lucide-react'
@@ -44,38 +45,18 @@ const defaultStats: DashboardStats = {
   quotaReserved: '--'
 }
 
-const quickLinks = [
-  {
-    href: '/admin/interview-quota',
-    title: '面试配额',
-    description: '查看剩余可创建场次、预占情况和历史消费流水',
-    tag: '额度管理'
-  },
-  {
-    href: '/admin/interviews',
-    title: '面试管理',
-    description: '查看创建记录、AI 评估结果和导出报表',
-    tag: '核心业务'
-  },
-  {
-    href: '/admin/candidates',
-    title: '候选人',
-    description: '统一维护候选人基本信息和联络方式',
-    tag: '资料管理'
-  },
-  {
-    href: '/admin/problems',
-    title: '题目管理',
-    description: '企业题库、模板复制与难度筛选',
-    tag: '题库维护'
-  },
-  {
-    href: '/admin/processes',
-    title: '运行进程',
-    description: '跟踪 Runtime 健康状态与异常停止',
-    tag: '运行保障'
-  }
-]
+interface ProblemActivity {
+  id: string
+  title: string
+  difficulty: string | null
+  problemType: string | null
+  duration: number
+  interviewCount: number
+  completedCount: number
+  avgScore: number | null
+  topCandidate: { name: string; score: number } | null
+  latestActivity: string | null
+}
 
 // --- Platform Dashboard types ---
 
@@ -230,15 +211,17 @@ function OrgDashboard() {
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats>(defaultStats)
   const [quotaSummary, setQuotaSummary] = useState<InterviewQuotaSummary | null>(null)
+  const [problemActivities, setProblemActivities] = useState<ProblemActivity[]>([])
 
   useEffect(() => {
     const loadStats = async () => {
-      const [interviews, candidates, problems, processes, quota] = await Promise.allSettled([
+      const [interviews, candidates, problems, processes, quota, activities] = await Promise.allSettled([
         apiFetch('/api/admin/interviews?limit=1'),
         apiFetch('/api/admin/candidates?limit=1'),
         apiFetch('/api/admin/problems?limit=1'),
         apiFetch('/api/admin/processes'),
-        apiFetch('/api/admin/interview-quota')
+        apiFetch('/api/admin/interview-quota'),
+        apiFetch('/api/admin/problems/with-activity')
       ])
 
       setStats({
@@ -257,6 +240,7 @@ function OrgDashboard() {
       })
 
       setQuotaSummary(quota.status === 'fulfilled' ? quota.value : null)
+      setProblemActivities(activities.status === 'fulfilled' ? activities.value.data || [] : [])
     }
 
     loadStats()
@@ -320,30 +304,50 @@ function OrgDashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[1.25fr,0.95fr]">
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div>
-              <div className="console-kicker">Quick Access</div>
-              <CardTitle className="mt-2">核心模块入口</CardTitle>
-            </div>
-            <Badge variant="outline">表格优先</Badge>
+          <CardHeader>
+            <div className="console-kicker">Problem Rankings</div>
+            <CardTitle className="mt-2">题目动态</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {quickLinks.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center justify-between rounded-lg border border-border px-4 py-3 transition-colors hover:bg-slate-50"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-medium text-slate-950">{item.title}</div>
-                    <Badge variant="secondary">{item.tag}</Badge>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-500">{item.description}</div>
-                </div>
-                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
-              </Link>
-            ))}
+          <CardContent className="max-h-[420px] overflow-y-auto">
+            {problemActivities.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-500">暂无题目数据</div>
+            ) : (
+              <div className="space-y-2">
+                {problemActivities.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={`/admin/problems/${item.id}/leaderboard`}
+                    className="flex items-center justify-between rounded-lg border border-border px-4 py-3 transition-colors hover:bg-slate-50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-slate-950">{item.title}</div>
+                        {item.difficulty && (
+                          <Badge variant={
+                            item.difficulty === 'Easy' ? 'default' :
+                            item.difficulty === 'Medium' ? 'secondary' : 'destructive'
+                          }>
+                            {item.difficulty === 'Easy' ? '简单' :
+                             item.difficulty === 'Medium' ? '中等' :
+                             item.difficulty === 'Hard' ? '困难' : item.difficulty}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-500">
+                        {item.completedCount} 人完成 · 平均 {item.avgScore != null ? item.avgScore.toFixed(1) : '--'} 分
+                      </div>
+                      {item.topCandidate && (
+                        <div className="mt-0.5 text-xs text-amber-600">
+                          <Trophy className="inline h-3 w-3 mr-0.5" />
+                          {item.topCandidate.name} ({item.topCandidate.score}分)
+                        </div>
+                      )}
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

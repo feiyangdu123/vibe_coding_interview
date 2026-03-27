@@ -431,6 +431,7 @@ function buildSnapshots(
     difficulty?: string | null;
     scoringCriteria: Prisma.JsonValue;
     scoringRubric?: string | null;
+    problemType?: string;
   },
   candidate: {
     name: string;
@@ -455,7 +456,8 @@ function buildSnapshots(
     },
     evaluationCriteriaSnapshot: {
       scoringCriteria: problem.scoringCriteria,
-      scoringRubric: problem.scoringRubric
+      scoringRubric: problem.scoringRubric,
+      problemType: problem.problemType
     }
   };
 }

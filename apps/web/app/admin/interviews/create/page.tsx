@@ -94,6 +94,16 @@ function bestPositionMatch(positions: string[], positionName: string): { distanc
   return best
 }
 
+function formatInterviewMessage(candidateName: string, link: string, scheduledStartAt?: string, positionName?: string) {
+  const timeLine = scheduledStartAt
+    ? `\n- 面试时间：${new Date(scheduledStartAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+    : ''
+  const greeting = positionName
+    ? `你好 ${candidateName}，你的「${positionName}」编程面试已安排：`
+    : `你好 ${candidateName}，你的编程面试已安排：`
+  return `${greeting}${timeLine}\n- 面试链接：${link}\n请在面试时间打开链接，准时参加。祝顺利！`
+}
+
 interface SortedProblem extends Problem {
   _matchedPosition?: string | null
 }
@@ -109,6 +119,7 @@ export default function CreateInterviewPage() {
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
   const [interviewLink, setInterviewLink] = useState('')
+  const [interviewMessage, setInterviewMessage] = useState('')
   const [bulkCandidates, setBulkCandidates] = useState<Array<{ name: string; email: string; phone?: string }>>([])
   const [batchResultDialogOpen, setBatchResultDialogOpen] = useState(false)
   const [batchResult, setBatchResult] = useState<any>(null)
@@ -378,8 +389,10 @@ export default function CreateInterviewPage() {
           } catch {}
 
           const link = `${window.location.origin}/interview/${interview.token}`
+          const message = formatInterviewMessage(selectedCandidates[0].name, link, data.scheduledStartAt ? toApiDateTimeValue(data.scheduledStartAt) : undefined, data.positionName || undefined)
           setInterviewLink(link)
-          copyToClipboard(link)
+          setInterviewMessage(message)
+          copyToClipboard(message)
           setSuccessDialogOpen(true)
           await loadQuotaSummary()
         }
@@ -398,8 +411,10 @@ export default function CreateInterviewPage() {
         } catch {}
 
         const link = `${window.location.origin}/interview/${interview.token}`
+        const message = formatInterviewMessage(data.newCandidate?.name || '', link, data.scheduledStartAt ? toApiDateTimeValue(data.scheduledStartAt) : undefined, data.positionName || undefined)
         setInterviewLink(link)
-        copyToClipboard(link)
+        setInterviewMessage(message)
+        copyToClipboard(message)
         setSuccessDialogOpen(true)
         await loadQuotaSummary()
       }
@@ -935,10 +950,10 @@ export default function CreateInterviewPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>面试链接</Label>
-              <Input value={interviewLink} readOnly className="mt-2" />
+              <Label>已复制到剪贴板的内容</Label>
+              <pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{interviewMessage}</pre>
             </div>
-            <p className="text-sm text-muted-foreground">链接已复制到剪贴板</p>
+            <p className="text-sm text-muted-foreground">文案已复制到剪贴板，可直接发送给候选人</p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={handleCreateAnother}>

@@ -9,19 +9,29 @@ import {
   getWorkspaceUrlForInterview
 } from '../services/interview-service';
 
+function stripScoringFields(interview: any) {
+  if (!interview) return interview;
+  const { evaluationCriteriaSnapshot, ...rest } = interview;
+  if (rest.problem) {
+    const { scoringCriteria, scoringRubric, ...safeProblem } = rest.problem;
+    return { ...rest, problem: safeProblem };
+  }
+  return rest;
+}
+
 export async function interviewPublicRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { token: string } }>('/api/interview/:token', async (request, reply) => {
     const interview = await getInterviewByToken(request.params.token);
     if (!interview) {
       return reply.code(404).send({ error: 'Interview not found' });
     }
-    return withWorkspaceUrl(interview);
+    return stripScoringFields(await withWorkspaceUrl(interview));
   });
 
   fastify.post<{ Params: { token: string } }>('/api/interview/:token/start', async (request, reply) => {
     try {
       const interview = await startInterview(request.params.token);
-      return withWorkspaceUrl(interview);
+      return stripScoringFields(await withWorkspaceUrl(interview));
     } catch (error) {
       const errorMessage = (error as Error).message;
       fastify.log.error({ error: errorMessage, token: request.params.token }, 'Failed to start interview');
@@ -47,7 +57,7 @@ export async function interviewPublicRoutes(fastify: FastifyInstance) {
   fastify.post<{ Params: { token: string } }>('/api/interview/:token/submit', async (request, reply) => {
     try {
       const interview = await submitInterview(request.params.token);
-      return interview;
+      return stripScoringFields(interview);
     } catch (error) {
       const errorMessage = (error as Error).message;
       fastify.log.error({ error: errorMessage, token: request.params.token }, 'Failed to submit interview');
