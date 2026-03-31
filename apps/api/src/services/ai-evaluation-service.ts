@@ -46,8 +46,6 @@ const EVALUATION_PROMPT_TEMPLATE = `你是一位资深的技术面试评估专�
 {SCORING_RUBRIC}
 
 **面试信息**:
-- 时长: {DURATION} 分钟
-- 结束原因: {END_REASON}
 - 项目路径: {PROJECT_PATH}
 
 **聊天历史**:
@@ -157,10 +155,10 @@ export async function evaluateInterview(
       throw new Error(chatHistoryResponse.error);
     }
 
-    // 候选人没有与 AI 交互（没有 session 或没有消息），直接给零分
-    const hasNoInteraction = !chatHistoryResponse.sessionId
-      || !chatHistoryResponse.messages
-      || chatHistoryResponse.messages.length === 0;
+    // 候选人没有与 AI 交互（没有 session 或所有 session 都没有消息），直接给零分
+    const hasNoInteraction = !chatHistoryResponse.sessions
+      || chatHistoryResponse.sessions.length === 0
+      || chatHistoryResponse.sessions.every(s => s.messages.length === 0);
 
     if (hasNoInteraction) {
       console.log(`[Evaluation ${interviewId}] No chat history found — candidate did not interact. Assigning zero score.`);
@@ -218,17 +216,36 @@ export async function evaluateInterview(
       return;
     }
 
-    // 格式化聊天历史 - 提取文本内容
-    const formattedHistory = (chatHistoryResponse.messages as any[])
-      .map((msg: any, idx: any) => {
-        const textParts = msg.parts
-          .filter((part: any) => part.type === 'text')
-          .map((part: any) => part.content)
-          .join('\n');
-        return `[${idx + 1}] ${msg.role === 'user' ? '候选人' : 'AI'}: ${textParts}`;
-      })
-      .filter((line: any) => line.trim().length > 0)
-      .join('\n\n');
+    // 格式化聊天历史 - 按 session 分组
+    const sessions = chatHistoryResponse.sessions;
+    const isMultiSession = sessions.length > 1;
+
+    const formatSessionMessages = (messages: any[]) =>
+      messages
+        .map((msg: any, idx: any) => {
+          const textParts = msg.parts
+            .filter((part: any) => part.type === 'text')
+            .map((part: any) => part.content)
+            .join('\n');
+          return `[${idx + 1}] ${msg.role === 'user' ? '候选人' : 'AI'}: ${textParts}`;
+        })
+        .filter((line: any) => line.trim().length > 0)
+        .join('\n\n');
+
+    let formattedHistory: string;
+    if (isMultiSession) {
+      formattedHistory = sessions
+        .map((session, idx) => {
+          const header = `=== 会话 ${idx + 1}: ${session.sessionInfo.title} ===`;
+          const body = formatSessionMessages(session.messages);
+          return body ? `${header}\n\n${body}` : `${header}\n\n（无消息）`;
+        })
+        .join('\n\n---\n\n');
+    } else {
+      formattedHistory = formatSessionMessages(sessions[0].messages);
+    }
+
+    const allMessages = sessions.flatMap(s => s.messages);
 
     // 提取题目快照信息
     const problemSnapshot = interview.problemSnapshot as any || {};
@@ -260,7 +277,7 @@ export async function evaluateInterview(
       .replace('{DURATION}', String(interview.duration))
       .replace('{END_REASON}', interview.endReason ? (endReasonMap[interview.endReason] || interview.endReason) : '未知')
       .replace('{PROJECT_PATH}', interview.workDir)
-      .replace('{CHAT_HISTORY}', truncateChatHistory(formattedHistory, chatHistoryResponse.messages as any[]));
+      .replace('{CHAT_HISTORY}', truncateChatHistory(formattedHistory, allMessages));
 
     // 执行评估（使用 Claude Code CLI）
     console.log(`[Evaluation ${interviewId}] Starting Claude Code evaluation (version ${nextVersion})...`);

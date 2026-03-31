@@ -24,6 +24,11 @@ interface SessionInfo {
   directory: string
 }
 
+interface SessionWithMessages {
+  sessionInfo: SessionInfo
+  messages: ChatMessageType[]
+}
+
 interface ChatHistoryDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -33,8 +38,8 @@ interface ChatHistoryDialogProps {
 export function ChatHistoryDialog({ open, onOpenChange, interviewId }: ChatHistoryDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessageType[]>([])
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
+  const [sessions, setSessions] = useState<SessionWithMessages[]>([])
+  const [activeSessionIndex, setActiveSessionIndex] = useState(0)
 
   useEffect(() => {
     if (!open || !interviewId) {
@@ -43,15 +48,23 @@ export function ChatHistoryDialog({ open, onOpenChange, interviewId }: ChatHisto
 
     setLoading(true)
     setError(null)
+    setActiveSessionIndex(0)
 
     apiFetch(`/api/admin/interviews/${interviewId}/chat-history`)
       .then(data => {
         if (data.error) {
           setError(data.error)
-          setMessages([])
+          setSessions([])
+        } else if (data.sessions && data.sessions.length > 0) {
+          setSessions(data.sessions)
+        } else if (data.messages) {
+          // Fallback: wrap legacy single-session response
+          setSessions([{
+            sessionInfo: data.sessionInfo || { title: 'Interview Session', directory: '' },
+            messages: data.messages
+          }])
         } else {
-          setMessages(data.messages || [])
-          setSessionInfo(data.sessionInfo || null)
+          setSessions([])
         }
       })
       .catch(err => {
@@ -63,17 +76,39 @@ export function ChatHistoryDialog({ open, onOpenChange, interviewId }: ChatHisto
       })
   }, [open, interviewId])
 
+  const currentSession = sessions[activeSessionIndex]
+  const messages = currentSession?.messages || []
+  const isMultiSession = sessions.length > 1
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>聊天记录</DialogTitle>
-          {sessionInfo && (
+          {currentSession?.sessionInfo && (
             <p className="text-sm text-muted-foreground">
-              {sessionInfo.title}
+              {currentSession.sessionInfo.title}
             </p>
           )}
         </DialogHeader>
+
+        {isMultiSession && (
+          <div className="flex flex-wrap gap-1.5 pb-2 border-b">
+            {sessions.map((session, idx) => (
+              <Button
+                key={idx}
+                variant={idx === activeSessionIndex ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveSessionIndex(idx)}
+              >
+                会话 {idx + 1}
+                {session.messages.length > 0 && (
+                  <span className="ml-1 text-xs opacity-70">({session.messages.length})</span>
+                )}
+              </Button>
+            ))}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-1">
           {loading && (

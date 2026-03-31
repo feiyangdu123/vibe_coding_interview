@@ -39,8 +39,8 @@ function getFailureReason(run: AiEvaluationRun): string {
   return '评估过程中发生错误'
 }
 
-function getOrdinalLabel(index: number): string {
-  return `第 ${index + 1} 次评估`
+function getOrdinalLabel(version: number): string {
+  return `第 ${version} 次评估`
 }
 
 export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun }: AiRunHistoryPanelProps) {
@@ -81,7 +81,7 @@ export function AiRunHistoryPanel({ history, selectedRunId, onSelectRun }: AiRun
               onClick={() => toggleExpand(run)}
             >
               <div className="flex items-center gap-3">
-                <span className="font-medium text-gray-900 text-sm">{getOrdinalLabel(idx)}</span>
+                <span className="font-medium text-gray-900 text-sm">{getOrdinalLabel(run.version)}</span>
                 {isCurrent && (
                   <Badge variant="default" className="text-[10px]">当前</Badge>
                 )}
